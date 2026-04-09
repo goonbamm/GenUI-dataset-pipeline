@@ -11,12 +11,14 @@ Stage 3 helper script:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import datetime as dt
 import json
 import os
 import random
 import re
+import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -27,6 +29,8 @@ ACTION_REQUIRED_FIELDS = ["scenario_created_at", "scenario_model", "category", "
 EXAMPLE_JSON_FIELDS = [
     "created_at",
     "model",
+    "row_index",
+    "sample_index",
     "scenario_created_at",
     "scenario_model",
     "category",
@@ -410,6 +414,31 @@ def build_difficulty_targets(
     ]
 
 
+def create_completion_with_retry(
+    client: OpenAI,
+    *,
+    model: str,
+    temperature: float,
+    messages: list[dict[str, str]],
+    max_retries: int = 3,
+    initial_backoff_sec: float = 1.0,
+):
+    attempt = 0
+    while True:
+        try:
+            return client.chat.completions.create(
+                model=model,
+                n=1,
+                temperature=temperature,
+                messages=messages,
+            )
+        except Exception:
+            attempt += 1
+            if attempt > max_retries:
+                raise
+            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
@@ -441,12 +470,15 @@ def main() -> None:
         help="Random seed used when --difficulty-strategy=random.",
     )
     parser.add_argument("--limit-scenarios", type=int, default=0)
+    parser.add_argument("--max-concurrency", type=int, default=6)
     args = parser.parse_args()
 
     if args.variants_per_scenario < 1:
         raise ValueError("--variants-per-scenario must be >= 1")
     if args.max_examples < 0:
         raise ValueError("--max-examples must be >= 0")
+    if args.max_concurrency < 1:
+        raise ValueError("--max-concurrency must be >= 1")
 
     scenario_rows = load_scenarios(Path(args.scenario_csv))
     if args.limit_scenarios > 0:
@@ -461,9 +493,7 @@ def main() -> None:
     rand = random.Random(args.example_seed)
     difficulty_rand = random.Random(args.difficulty_seed)
 
-    rows_to_append: list[dict[str, str]] = []
-
-    for idx, row in enumerate(scenario_rows, start=1):
+    def process_row(row_index: int, row: dict[str, str]) -> dict[str, object]:
         strict_key = (
             row["scenario_created_at"],
             row["scenario_model"],
@@ -495,9 +525,9 @@ def main() -> None:
             difficulty_targets=difficulty_targets,
         )
 
-        completion = client.chat.completions.create(
+        completion = create_completion_with_retry(
+            client,
             model=args.model,
-            n=1,
             temperature=args.temperature,
             messages=[
                 {
@@ -509,18 +539,54 @@ def main() -> None:
         )
 
         output_text = completion.choices[0].message.content or ""
+        variants = parse_json_array(output_text)
+        return {
+            "row_index": row_index,
+            "sample_index": 1,
+            "row": row,
+            "prompt": prompt,
+            "action_items": action_items,
+            "action_names": action_names,
+            "difficulty_targets": difficulty_targets,
+            "variants": variants[: args.variants_per_scenario],
+        }
 
-        try:
-            variants = parse_json_array(output_text)
-        except Exception as e:
-            print(
-                f"[WARN] {idx}/{len(scenario_rows)} {row['category']} | {row['scenario']} "
-                f"-> parse failed: {e}"
-            )
-            continue
+    rows_to_append: list[dict[str, str]] = []
+    total = len(scenario_rows)
+    done = 0
+    ordered_results: list[dict[str, object]] = []
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
+        future_to_row = {
+            executor.submit(process_row, row_index, row): (row_index, row)
+            for row_index, row in enumerate(scenario_rows, start=1)
+        }
+
+        for future in concurrent.futures.as_completed(future_to_row):
+            done += 1
+            row_index, row = future_to_row[future]
+            try:
+                ordered_results.append(future.result())
+                print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
+            except Exception as e:
+                print(
+                    f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
+                    f"request failed after retries or parse failed: {e}"
+                )
+
+    ordered_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
+
+    for result in ordered_results:
+        row_index = int(result["row_index"])
+        sample_index = int(result["sample_index"])
+        row = result["row"]
+        prompt = str(result["prompt"])
+        action_items = result["action_items"]
+        action_names = result["action_names"]
+        difficulty_targets = result["difficulty_targets"]
+        variants = result["variants"]
         now = dt.datetime.now(dt.timezone.utc).isoformat()
-        for variant_index, obj in enumerate(variants[: args.variants_per_scenario], start=1):
+        for variant_index, obj in enumerate(variants, start=1):
             ensured = ensure_actions(obj, action_names)
             target_level = difficulty_targets[variant_index - 1]
             difficulty = estimate_difficulty(
@@ -533,6 +599,8 @@ def main() -> None:
                 {
                     "created_at": now,
                     "model": args.model,
+                    "row_index": str(row_index),
+                    "sample_index": str(sample_index),
                     "scenario_created_at": row["scenario_created_at"],
                     "scenario_model": row["scenario_model"],
                     "category": row["category"],
@@ -545,11 +613,6 @@ def main() -> None:
                     "example_json": json.dumps(ensured, ensure_ascii=False),
                 }
             )
-
-        print(
-            f"[DONE] {idx}/{len(scenario_rows)} {row['category']} | {row['scenario']}: "
-            f"{min(len(variants), args.variants_per_scenario)} variants"
-        )
 
     if not rows_to_append:
         print("No example JSON rows generated.")

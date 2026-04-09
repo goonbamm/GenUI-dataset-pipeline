@@ -11,10 +11,12 @@ Stage 2 helper script:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import datetime as dt
 import os
 import re
+import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -23,6 +25,8 @@ SCENARIO_FIELDS = ["created_at", "model", "prompt", "category", "scenario"]
 ACTION_FIELDS = [
     "created_at",
     "model",
+    "row_index",
+    "sample_index",
     "scenario_created_at",
     "scenario_model",
     "category",
@@ -128,6 +132,31 @@ def extract_action_items(text: str) -> list[str]:
     return results
 
 
+def create_completion_with_retry(
+    client: OpenAI,
+    *,
+    model: str,
+    temperature: float,
+    messages: list[dict[str, str]],
+    max_retries: int = 3,
+    initial_backoff_sec: float = 1.0,
+):
+    attempt = 0
+    while True:
+        try:
+            return client.chat.completions.create(
+                model=model,
+                n=1,
+                temperature=temperature,
+                messages=messages,
+            )
+        except Exception:
+            attempt += 1
+            if attempt > max_retries:
+                raise
+            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
@@ -139,10 +168,13 @@ def main() -> None:
     parser.add_argument("--max-items-per-scenario", type=int, default=3)
     parser.add_argument("--max-examples", type=int, default=10)
     parser.add_argument("--limit-scenarios", type=int, default=0)
+    parser.add_argument("--max-concurrency", type=int, default=6)
     args = parser.parse_args()
 
     if args.max_items_per_scenario < 1:
         raise ValueError("--max-items-per-scenario must be >= 1")
+    if args.max_concurrency < 1:
+        raise ValueError("--max-concurrency must be >= 1")
 
     scenario_rows = load_scenarios(Path(args.scenario_csv))
     if args.limit_scenarios > 0:
@@ -156,9 +188,7 @@ def main() -> None:
 
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
 
-    rows_to_append: list[dict[str, str]] = []
-
-    for idx, row in enumerate(scenario_rows, start=1):
+    def process_row(row_index: int, row: dict[str, str]) -> dict[str, object]:
         prompt = build_prompt(
             category=row["category"],
             scenario=row["scenario"],
@@ -170,9 +200,9 @@ def main() -> None:
             f"Output format: return 1 to {args.max_items_per_scenario} lines, no extra text."
         )
 
-        completion = client.chat.completions.create(
+        completion = create_completion_with_retry(
+            client,
             model=args.model,
-            n=1,
             temperature=args.temperature,
             messages=[
                 {
@@ -185,6 +215,45 @@ def main() -> None:
 
         output_text = completion.choices[0].message.content or ""
         items = extract_action_items(output_text)[: args.max_items_per_scenario]
+        return {
+            "row_index": row_index,
+            "sample_index": 1,
+            "row": row,
+            "prompt": prompt,
+            "items": items,
+        }
+
+    rows_to_append: list[dict[str, str]] = []
+    total = len(scenario_rows)
+    done = 0
+    ordered_results: list[dict[str, object]] = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
+        future_to_row = {
+            executor.submit(process_row, row_index, row): (row_index, row)
+            for row_index, row in enumerate(scenario_rows, start=1)
+        }
+
+        for future in concurrent.futures.as_completed(future_to_row):
+            done += 1
+            row_index, row = future_to_row[future]
+            try:
+                ordered_results.append(future.result())
+                print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
+            except Exception as e:
+                print(
+                    f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
+                    f"request failed after retries: {e}"
+                )
+
+    ordered_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
+
+    for result in ordered_results:
+        row_index = int(result["row_index"])
+        sample_index = int(result["sample_index"])
+        row = result["row"]
+        prompt = str(result["prompt"])
+        items = result["items"]
 
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         for item in items:
@@ -192,6 +261,8 @@ def main() -> None:
                 {
                     "created_at": now,
                     "model": args.model,
+                    "row_index": str(row_index),
+                    "sample_index": str(sample_index),
                     "scenario_created_at": row["scenario_created_at"],
                     "scenario_model": row["scenario_model"],
                     "category": row["category"],
@@ -200,11 +271,6 @@ def main() -> None:
                     "action_item": item,
                 }
             )
-
-        print(
-            f"[DONE] {idx}/{len(scenario_rows)} "
-            f"{row['category']} | {row['scenario']}: {len(items)} items"
-        )
 
     if not rows_to_append:
         print("No action items generated.")

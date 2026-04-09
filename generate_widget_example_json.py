@@ -34,6 +34,8 @@ EXAMPLE_JSON_FIELDS = [
     "prompt",
     "action_items",
     "variant_index",
+    "difficulty_target",
+    "difficulty",
     "example_json",
 ]
 
@@ -115,6 +117,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "actions": ["track_package", "contact_courier"],
     },
 ]
+
+DIFFICULTY_LEVELS = ["low", "medium", "high"]
 
 
 def normalize_text(text: str) -> str:
@@ -208,12 +212,18 @@ def build_prompt(
     action_items: list[str],
     variants_per_scenario: int,
     fewshot_examples: list[dict[str, object]],
+    difficulty_targets: list[str],
 ) -> str:
     action_list_text = "\n".join(f"- {x}" for x in action_items) if action_items else "- (none)"
     fewshot_text = (
         "\n".join(f"- {json.dumps(item, ensure_ascii=False)}" for item in fewshot_examples)
         if fewshot_examples
         else "- (none)"
+    )
+
+    difficulty_target_text = "\n".join(
+        f"- variant {i}: {level}"
+        for i, level in enumerate(difficulty_targets, start=1)
     )
 
     return f"""You are generating concrete JSON data for a mobile widget dataset (stage 3).
@@ -235,9 +245,18 @@ Requirements:
 4) If no action item is needed, set "actions": [].
 5) Add concrete, user-facing fields relevant to the scenario (dates, names, numbers, status, prices, etc.).
 6) Use realistic values and keep key names in snake_case.
-7) Even for the same scenario, each object should represent a different concrete variant
-   (example: shopping can vary by coffee, clothes, electronics, etc.).
+7) Variants should describe the same core user case/entity, and differ mainly by information complexity.
+   (e.g., same product/trip/order context with progressively richer fields and nesting)
 8) Do not include markdown/code fences or explanation text.
+9) Match the requested difficulty per variant index as closely as possible.
+
+Target difficulty by variant index:
+{difficulty_target_text}
+
+Difficulty guide:
+- low: relatively simple/flat schema, fewer fields and lighter detail.
+- medium: moderate field count with limited nesting and richer detail.
+- high: richer schema with deeper nesting and/or denser details.
 """
 
 
@@ -289,6 +308,108 @@ def ensure_actions(obj: dict, fallback_action_names: list[str]) -> dict:
     return updated
 
 
+def _inspect_json(value: object, depth: int = 1) -> dict[str, int]:
+    """Return simple structure stats used for difficulty estimation."""
+    stats = {
+        "max_depth": depth,
+        "object_nodes": 0,
+        "array_nodes": 0,
+        "leaf_nodes": 0,
+        "non_action_keys": 0,
+        "array_items": 0,
+        "string_chars": 0,
+    }
+    if isinstance(value, dict):
+        stats["object_nodes"] += 1
+        for key, child in value.items():
+            if key != "actions":
+                stats["non_action_keys"] += 1
+            child_stats = _inspect_json(child, depth + 1)
+            for k, v in child_stats.items():
+                if k == "max_depth":
+                    stats[k] = max(stats[k], v)
+                else:
+                    stats[k] += v
+        return stats
+
+    if isinstance(value, list):
+        stats["array_nodes"] += 1
+        stats["array_items"] += len(value)
+        for child in value:
+            child_stats = _inspect_json(child, depth + 1)
+            for k, v in child_stats.items():
+                if k == "max_depth":
+                    stats[k] = max(stats[k], v)
+                else:
+                    stats[k] += v
+        return stats
+
+    stats["leaf_nodes"] += 1
+    if isinstance(value, str):
+        stats["string_chars"] += len(value)
+    return stats
+
+
+def estimate_difficulty(
+    scenario: str,
+    action_items: list[str],
+    action_names: list[str],
+    json_obj: dict,
+) -> str:
+    """Estimate per-variant generation difficulty as low/medium/high + score."""
+    unique_action_names = sorted(set(x for x in action_names if x))
+    action_count = len(unique_action_names)
+    scenario_words = len(re.findall(r"[a-zA-Z0-9가-힣_]+", scenario))
+
+    stats = _inspect_json(json_obj)
+    structural_raw = (
+        stats["object_nodes"]
+        + stats["array_nodes"]
+        + (stats["max_depth"] * 2)
+        + min(stats["array_items"], 20)
+    )
+
+    action_score = min(action_count, 8) / 8 * 35
+    field_score = min(stats["non_action_keys"], 14) / 14 * 25
+    structure_score = min(structural_raw, 26) / 26 * 20
+    payload_score = min(stats["string_chars"], 260) / 260 * 10
+    scenario_score = min(scenario_words, 18) / 18 * 10
+
+    # Penalize when stage2 had many raw action items but extraction collapsed heavily.
+    # (signals noisy or inconsistent action specification)
+    raw_action_count = len([x for x in action_items if x.strip()])
+    ambiguity_bonus = min(max(raw_action_count - action_count, 0), 4) * 1.25
+
+    total_score = round(min(action_score + field_score + structure_score + payload_score + scenario_score + ambiguity_bonus, 100))
+    if total_score < 34:
+        level = "low"
+    elif total_score < 67:
+        level = "medium"
+    else:
+        level = "high"
+    return f"{level}:{total_score}"
+
+
+def build_difficulty_targets(
+    variants_per_scenario: int,
+    strategy: str,
+    rand: random.Random,
+    fixed_level: str,
+) -> list[str]:
+    """Build per-variant target difficulty levels."""
+    if strategy == "fixed":
+        return [fixed_level for _ in range(variants_per_scenario)]
+
+    if strategy == "random":
+        return [rand.choice(DIFFICULTY_LEVELS) for _ in range(variants_per_scenario)]
+
+    # default: rotate (low -> medium -> high, repeat)
+    return [
+        DIFFICULTY_LEVELS[i % len(DIFFICULTY_LEVELS)]
+        for i in range(variants_per_scenario)
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
@@ -301,6 +422,24 @@ def main() -> None:
     parser.add_argument("--variants-per-scenario", type=int, default=3)
     parser.add_argument("--max-examples", type=int, default=3)
     parser.add_argument("--example-seed", type=int, default=42)
+    parser.add_argument(
+        "--difficulty-strategy",
+        choices=["rotate", "random", "fixed"],
+        default="rotate",
+        help="How to assign per-variant difficulty targets (default: rotate).",
+    )
+    parser.add_argument(
+        "--difficulty-fixed-level",
+        choices=DIFFICULTY_LEVELS,
+        default="medium",
+        help="Used only when --difficulty-strategy=fixed.",
+    )
+    parser.add_argument(
+        "--difficulty-seed",
+        type=int,
+        default=42,
+        help="Random seed used when --difficulty-strategy=random.",
+    )
     parser.add_argument("--limit-scenarios", type=int, default=0)
     args = parser.parse_args()
 
@@ -320,6 +459,7 @@ def main() -> None:
     action_map = load_action_items(Path(args.action_csv))
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
     rand = random.Random(args.example_seed)
+    difficulty_rand = random.Random(args.difficulty_seed)
 
     rows_to_append: list[dict[str, str]] = []
 
@@ -333,6 +473,12 @@ def main() -> None:
         fallback_key = ("", "", row["category"], row["scenario"])
         action_items = action_map.get(strict_key) or action_map.get(fallback_key) or []
         action_names = [extract_action_name(x) for x in action_items if extract_action_name(x)]
+        difficulty_targets = build_difficulty_targets(
+            variants_per_scenario=args.variants_per_scenario,
+            strategy=args.difficulty_strategy,
+            rand=difficulty_rand,
+            fixed_level=args.difficulty_fixed_level,
+        )
         prompt_examples_count = min(args.max_examples, len(FEWSHOT_JSON_EXAMPLES))
         prompt_examples = (
             rand.sample(FEWSHOT_JSON_EXAMPLES, k=prompt_examples_count)
@@ -346,6 +492,7 @@ def main() -> None:
             action_items=action_items,
             variants_per_scenario=args.variants_per_scenario,
             fewshot_examples=prompt_examples,
+            difficulty_targets=difficulty_targets,
         )
 
         completion = client.chat.completions.create(
@@ -375,6 +522,13 @@ def main() -> None:
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         for variant_index, obj in enumerate(variants[: args.variants_per_scenario], start=1):
             ensured = ensure_actions(obj, action_names)
+            target_level = difficulty_targets[variant_index - 1]
+            difficulty = estimate_difficulty(
+                scenario=row["scenario"],
+                action_items=action_items,
+                action_names=action_names,
+                json_obj=ensured,
+            )
             rows_to_append.append(
                 {
                     "created_at": now,
@@ -386,6 +540,8 @@ def main() -> None:
                     "prompt": prompt,
                     "action_items": json.dumps(action_items, ensure_ascii=False),
                     "variant_index": str(variant_index),
+                    "difficulty_target": target_level,
+                    "difficulty": difficulty,
                     "example_json": json.dumps(ensured, ensure_ascii=False),
                 }
             )

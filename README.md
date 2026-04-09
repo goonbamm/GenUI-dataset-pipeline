@@ -152,7 +152,32 @@ python generate_widget_action_items.py \
   - `prompt`
   - `action_items`
   - `variant_index`
+  - `difficulty_target` (생성 시 variant index별 목표 난이도)
+  - `difficulty` (`low|medium|high:score` 형식, 예: `medium:58`)
   - `example_json`
+
+### 3단계 난이도(`difficulty`) 산정 기준
+
+`difficulty`는 JSON variant 단위로 계산되며, **모델이 4단계에서 UI를 만들 때의 복잡도**를 근사합니다.
+또한 생성 시 기본적으로 같은 시나리오 내 variant들을 **같은 핵심 예시로 유지**한 뒤,
+`difficulty_target`을 low→medium→high 순으로 부여해 난이도만 단계적으로 바뀌도록 유도합니다.
+
+기본값은 **랜덤이 아니라 `rotate`(결정적 회전)** 입니다.
+- 기본(`--difficulty-strategy rotate`): variant index 기준으로 low→medium→high를 반복
+- 랜덤(`--difficulty-strategy random`): `--difficulty-seed` 기반으로 무작위 배치
+- 고정(`--difficulty-strategy fixed`): `--difficulty-fixed-level` 하나로 통일
+
+- `actions` 복잡도 (가중치 큼): 고유 action 개수가 많을수록 난이도 증가
+- 필드 복잡도: `actions` 제외 top-level 필드 수가 많을수록 증가
+- 구조 복잡도: 중첩 depth, 객체/배열 노드 수, 배열 원소 수가 많을수록 증가
+- payload 복잡도: 문자열 총 길이가 길수록 증가
+- 시나리오 복잡도: 시나리오 토큰 수가 많을수록 증가
+- action 모호성 보정: raw action item 대비 함수명 추출이 많이 줄어들면 소폭 가산
+
+최종 score(0~100)를 기준으로 다음 레벨을 붙입니다.
+- `low`: 0~33
+- `medium`: 34~66
+- `high`: 67~100
 
 ### 실행 방법
 
@@ -172,4 +197,7 @@ python generate_widget_example_json.py   --base-url http://localhost:8000/v1   -
 - `--variants-per-scenario`: 시나리오별 JSON variant 개수 (기본: `3`)
 - `--max-examples`: 프롬프트에 넣을 무작위 JSON 예시 개수 (기본: `3`)
 - `--example-seed`: 예시 샘플링 시드값 (기본: `42`)
+- `--difficulty-strategy`: 난이도 target 배치 방식 `rotate|random|fixed` (기본: `rotate`)
+- `--difficulty-fixed-level`: `fixed` 전략일 때 사용할 레벨 `low|medium|high` (기본: `medium`)
+- `--difficulty-seed`: `random` 전략 난수 시드 (기본: `42`)
 - `--limit-scenarios`: 앞에서 N개 시나리오만 테스트 생성 (기본: `0`, 전체)

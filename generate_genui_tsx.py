@@ -11,11 +11,13 @@ Stage 4 helper script:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import datetime as dt
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -36,6 +38,7 @@ JSON_REQUIRED_FIELDS = [
 TSX_FIELDS = [
     "created_at",
     "model",
+    "row_index",
     "json_created_at",
     "json_model",
     "scenario_created_at",
@@ -164,6 +167,31 @@ def build_rlvr_reward_spec() -> str:
     return json.dumps(spec, ensure_ascii=False)
 
 
+def create_completion_with_retry(
+    client: OpenAI,
+    *,
+    model: str,
+    temperature: float,
+    messages: list[dict[str, str]],
+    max_retries: int = 3,
+    initial_backoff_sec: float = 1.0,
+):
+    attempt = 0
+    while True:
+        try:
+            return client.chat.completions.create(
+                model=model,
+                n=1,
+                temperature=temperature,
+                messages=messages,
+            )
+        except Exception:
+            attempt += 1
+            if attempt > max_retries:
+                raise
+            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-csv", default="mobile_widget_example_json.csv")
@@ -174,10 +202,13 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--samples-per-input", type=int, default=3)
     parser.add_argument("--limit-rows", type=int, default=0)
+    parser.add_argument("--max-concurrency", type=int, default=6)
     args = parser.parse_args()
 
     if args.samples_per_input < 1:
         raise ValueError("--samples-per-input must be >= 1")
+    if args.max_concurrency < 1:
+        raise ValueError("--max-concurrency must be >= 1")
 
     json_rows = load_json_rows(Path(args.json_csv))
     if args.limit_rows > 0:
@@ -190,15 +221,13 @@ def main() -> None:
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
     rlvr_reward_spec = build_rlvr_reward_spec()
     rows_to_append: list[dict[str, str]] = []
+    tasks: list[dict[str, object]] = []
 
-    total_calls = len(json_rows) * args.samples_per_input
-    call_idx = 0
-
-    for idx, row in enumerate(json_rows, start=1):
+    for row_index, row in enumerate(json_rows, start=1):
         try:
             json_obj = parse_json_obj(row["example_json"])
         except Exception as e:
-            print(f"[WARN] {idx}/{len(json_rows)} parse example_json failed: {e}")
+            print(f"[WARN] row {row_index}/{len(json_rows)} parse example_json failed: {e}")
             continue
 
         actions = parse_actions(json_obj)
@@ -210,53 +239,93 @@ def main() -> None:
         )
 
         for sample_index in range(1, args.samples_per_input + 1):
-            call_idx += 1
-            completion = client.chat.completions.create(
-                model=args.model,
-                n=1,
-                temperature=args.temperature,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You output raw TSX only for training datasets.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            )
-
-            output_text = completion.choices[0].message.content or ""
-            tsx_code = strip_code_fences(output_text)
-            format_ok = looks_like_tsx(tsx_code)
-            actions_ok = check_actions_used(tsx_code, actions)
-            now = dt.datetime.now(dt.timezone.utc).isoformat()
-
-            rows_to_append.append(
+            tasks.append(
                 {
-                    "created_at": now,
-                    "model": args.model,
-                    "json_created_at": row["created_at"],
-                    "json_model": row["model"],
-                    "scenario_created_at": row["scenario_created_at"],
-                    "scenario_model": row["scenario_model"],
-                    "category": row["category"],
-                    "scenario": row["scenario"],
-                    "json_variant_index": row["variant_index"],
-                    "json_difficulty_target": row["difficulty_target"],
-                    "json_difficulty": row["difficulty"],
-                    "sample_index": str(sample_index),
+                    "row_index": row_index,
+                    "sample_index": sample_index,
+                    "row": row,
+                    "actions": actions,
                     "prompt": prompt,
-                    "example_json": row["example_json"],
-                    "tsx_code": tsx_code,
-                    "format_ok": "1" if format_ok else "0",
-                    "uses_declared_actions": "1" if actions_ok else "0",
-                    "rlvr_reward_spec": rlvr_reward_spec,
                 }
             )
 
-            print(
-                f"[DONE] call {call_idx}/{total_calls} | row {idx}/{len(json_rows)} "
-                f"sample {sample_index}/{args.samples_per_input}"
-            )
+    total_calls = len(tasks)
+
+    def process_task(task: dict[str, object]) -> dict[str, object]:
+        completion = create_completion_with_retry(
+            client,
+            model=args.model,
+            temperature=args.temperature,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You output raw TSX only for training datasets.",
+                },
+                {"role": "user", "content": str(task["prompt"])},
+            ],
+        )
+        output_text = completion.choices[0].message.content or ""
+        tsx_code = strip_code_fences(output_text)
+        actions = task["actions"]
+        return {
+            "row_index": task["row_index"],
+            "sample_index": task["sample_index"],
+            "row": task["row"],
+            "actions": actions,
+            "prompt": task["prompt"],
+            "tsx_code": tsx_code,
+            "format_ok": looks_like_tsx(tsx_code),
+            "actions_ok": check_actions_used(tsx_code, actions),
+        }
+
+    done = 0
+    completed_results: list[dict[str, object]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
+        future_to_task = {executor.submit(process_task, task): task for task in tasks}
+        for future in concurrent.futures.as_completed(future_to_task):
+            done += 1
+            task = future_to_task[future]
+            try:
+                completed_results.append(future.result())
+                print(
+                    f"[DONE] {done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
+                    f"sample={task['sample_index']}/{args.samples_per_input}"
+                )
+            except Exception as e:
+                print(
+                    f"[WARN] {done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
+                    f"sample={task['sample_index']}/{args.samples_per_input} "
+                    f"request failed after retries: {e}"
+                )
+
+    completed_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
+
+    for result in completed_results:
+        row = result["row"]
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        rows_to_append.append(
+            {
+                "created_at": now,
+                "model": args.model,
+                "row_index": str(result["row_index"]),
+                "json_created_at": row["created_at"],
+                "json_model": row["model"],
+                "scenario_created_at": row["scenario_created_at"],
+                "scenario_model": row["scenario_model"],
+                "category": row["category"],
+                "scenario": row["scenario"],
+                "json_variant_index": row["variant_index"],
+                "json_difficulty_target": row["difficulty_target"],
+                "json_difficulty": row["difficulty"],
+                "sample_index": str(result["sample_index"]),
+                "prompt": result["prompt"],
+                "example_json": row["example_json"],
+                "tsx_code": result["tsx_code"],
+                "format_ok": "1" if result["format_ok"] else "0",
+                "uses_declared_actions": "1" if result["actions_ok"] else "0",
+                "rlvr_reward_spec": rlvr_reward_spec,
+            }
+        )
 
     if not rows_to_append:
         print("No TSX rows generated.")

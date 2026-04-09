@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Iterable
 
 from openai import OpenAI
+from csv_io import open_csv_for_append
 
 DEFAULT_CATEGORIES = [
     "쇼핑",
@@ -234,10 +235,10 @@ def main() -> None:
         print("No new scenarios generated.")
         return
 
-    file_exists = csv_path.exists()
-    with csv_path.open("a", encoding="utf-8", newline="") as f:
+    f, should_write_header = open_csv_for_append(csv_path)
+    with f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        if not file_exists:
+        if should_write_header:
             writer.writeheader()
         writer.writerows(rows_to_append)
 

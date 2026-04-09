@@ -87,6 +87,7 @@ python generate_genui_tsx.py
   - `prompt`
   - `category`
   - `scenario`
+- Excel에서 한글 깨짐 방지를 위해 최초 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장합니다.
 
 #### 실행 방법
 
@@ -154,6 +155,7 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
   - `scenario`
   - `prompt`
   - `action_item`
+- Excel에서 한글 깨짐 방지를 위해 최초 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장합니다.
 
 #### 실행 방법
 
@@ -210,6 +212,7 @@ python generate_widget_action_items.py \
   - `difficulty_target` (생성 시 variant index별 목표 난이도)
   - `difficulty` (`low|medium|high:score` 형식, 예: `medium:58`)
   - `example_json`
+- Excel에서 한글 깨짐 방지를 위해 최초 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장합니다.
 
 #### 3단계 난이도(`difficulty`) 산정 기준
 
@@ -298,6 +301,7 @@ python generate_widget_example_json.py \
   - `format_ok`
   - `uses_declared_actions`
   - `rlvr_reward_spec`
+- Excel에서 한글 깨짐 방지를 위해 최초 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장합니다.
 
 #### 실행 방법
 

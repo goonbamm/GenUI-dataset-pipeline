@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 
 from openai import OpenAI
+from csv_io import open_csv_for_append
 
 JSON_REQUIRED_FIELDS = [
     "created_at",
@@ -263,10 +264,10 @@ def main() -> None:
         return
 
     out_path = Path(args.tsx_csv)
-    file_exists = out_path.exists()
-    with out_path.open("a", encoding="utf-8", newline="") as f:
+    f, should_write_header = open_csv_for_append(out_path)
+    with f:
         writer = csv.DictWriter(f, fieldnames=TSX_FIELDS)
-        if not file_exists:
+        if should_write_header:
             writer.writeheader()
         writer.writerows(rows_to_append)
 

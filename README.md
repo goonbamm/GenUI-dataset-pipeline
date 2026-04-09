@@ -2,9 +2,9 @@
 
 Generative UI 모바일 위젯 시나리오 데이터를 **4단계 파이프라인**으로 생성하고 CSV로 누적 저장하는 스크립트 모음입니다.
 
-## 한눈에 보는 전체 흐름
+## 한눈에 보는 전체 흐름 🧭
 
-> 현재 4단계 구조를 기준으로, 전체 흐름을 빠르게 파악할 수 있게 요약했습니다.
+> 현재 4단계 구조를 기준으로, 전체 흐름을 빠르게 파악할 수 있게 요약했습니다 🙂
 
 ```mermaid
 flowchart LR
@@ -27,7 +27,7 @@ flowchart LR
 
 ---
 
-## 빠른 실행 (전체 파이프라인)
+## 빠른 실행 (전체 파이프라인) ⚡
 
 ### 요구 사항
 
@@ -64,9 +64,9 @@ python generate_genui_tsx.py
 
 ---
 
-## 자세한 사용법 (클릭해서 펼치기)
+## 자세한 사용법 (클릭해서 펼치기) 📘
 
-### 1단계: 시나리오 생성
+### 1단계: 시나리오 생성 🧩
 
 <details>
 <summary><strong>자세히 보기</strong></summary>
@@ -131,7 +131,7 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
 
 </details>
 
-### 2단계: Action Item 생성
+### 2단계: Action Item 생성 🛠️
 
 <details>
 <summary><strong>자세히 보기</strong></summary>
@@ -179,7 +179,7 @@ python generate_widget_action_items.py \
 
 </details>
 
-### 3단계: 구체 예시 JSON 생성
+### 3단계: 구체 예시 JSON 생성 🧪
 
 <details>
 <summary><strong>자세히 보기</strong></summary>
@@ -264,7 +264,7 @@ python generate_widget_example_json.py \
 
 </details>
 
-### 4단계: GenUI TSX 생성
+### 4단계: GenUI TSX 생성 🎨
 
 <details>
 <summary><strong>자세히 보기</strong></summary>

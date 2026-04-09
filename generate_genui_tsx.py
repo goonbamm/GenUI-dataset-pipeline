@@ -61,7 +61,7 @@ def load_json_rows(csv_path: Path) -> list[dict[str, str]]:
         raise FileNotFoundError(f"JSON CSV not found: {csv_path}")
 
     rows: list[dict[str, str]] = []
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
         missing = [col for col in JSON_REQUIRED_FIELDS if col not in headers]

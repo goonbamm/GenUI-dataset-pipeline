@@ -132,7 +132,7 @@ def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
         raise FileNotFoundError(f"Scenario CSV not found: {csv_path}")
 
     rows: list[dict[str, str]] = []
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
         missing = [col for col in SCENARIO_REQUIRED_FIELDS if col not in headers]
@@ -166,7 +166,7 @@ def load_action_items(csv_path: Path) -> dict[tuple[str, str, str, str], list[st
     by_strict_key: dict[tuple[str, str, str, str], list[str]] = {}
     fallback_by_scenario: dict[tuple[str, str], list[str]] = {}
 
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
         missing = [col for col in ACTION_REQUIRED_FIELDS if col not in headers]

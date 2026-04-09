@@ -60,7 +60,7 @@ def load_json_rows(csv_path: Path) -> list[dict[str, str]]:
         raise FileNotFoundError(f"JSON CSV not found: {csv_path}")
 
     rows: list[dict[str, str]] = []
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
         missing = [col for col in JSON_REQUIRED_FIELDS if col not in headers]
@@ -264,7 +264,9 @@ def main() -> None:
 
     out_path = Path(args.tsx_csv)
     file_exists = out_path.exists()
-    with out_path.open("a", encoding="utf-8", newline="") as f:
+    write_mode = "a" if file_exists else "w"
+    write_encoding = "utf-8" if file_exists else "utf-8-sig"
+    with out_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=TSX_FIELDS)
         if not file_exists:
             writer.writeheader()

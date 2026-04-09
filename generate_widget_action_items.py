@@ -56,7 +56,7 @@ def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
         raise FileNotFoundError(f"Scenario CSV not found: {csv_path}")
 
     rows: list[dict[str, str]] = []
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         missing = [col for col in ("category", "scenario") if col not in (reader.fieldnames or [])]
         if missing:
@@ -212,7 +212,9 @@ def main() -> None:
 
     action_csv_path = Path(args.action_csv)
     file_exists = action_csv_path.exists()
-    with action_csv_path.open("a", encoding="utf-8", newline="") as f:
+    write_mode = "a" if file_exists else "w"
+    write_encoding = "utf-8" if file_exists else "utf-8-sig"
+    with action_csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=ACTION_FIELDS)
         if not file_exists:
             writer.writeheader()

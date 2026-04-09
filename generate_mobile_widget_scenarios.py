@@ -32,41 +32,43 @@ DEFAULT_CATEGORIES = [
 ]
 
 RAW_EXAMPLES = [
-    "Flight status",
-    "email compose",
-    "calendar day",
-    "user profile",
-    "login form",
-    "sports player",
-    "restaurant card",
-    "countdown timer",
-    "account balance",
-    "shipping status",
-    "movie card",
-    "calendar day",
-    "notification permission",
-    "workout summary",
-    "credit card",
-    "step counter",
-    "live invitation builder",
-    "weather current",
-    "purchase complete",
-    "event detail",
-    "recipe card",
-    "product card",
-    "chat message",
-    "track list",
-    "incremental dashboard",
-    "chat message",
-    "music player",
-    "task card",
-    "coffee order",
-    "software purchase",
-    "contact card",
-    "podcast episode",
-    "advanced form validator",
-    "financial data grid",
-    "stats card",
+    "flight check-in status",
+    "flight boarding pass",
+    "email compose draft",
+    "calendar day agenda",
+    "user profile summary",
+    "login verification form",
+    "sports player comparison",
+    "restaurant nearby map",
+    "countdown timer setup",
+    "account balance overview",
+    "shipping status timeline",
+    "movie ticket checkout",
+    "notification permission prompt",
+    "workout plan detail",
+    "credit card statement",
+    "step counter trends",
+    "event invitation builder",
+    "weather current conditions",
+    "purchase completion receipt",
+    "event detail timeline",
+    "recipe ingredient checklist",
+    "product variant selector",
+    "chat message thread",
+    "music track queue",
+    "analytics dashboard snapshot",
+    "music player controls",
+    "task priority board",
+    "coffee order customization",
+    "software subscription checkout",
+    "contact card actions",
+    "podcast episode details",
+    "budget spending breakdown",
+    "hotel search results",
+    "hotel room comparison",
+    "hotel detail overview",
+    "hotel booking payment",
+    "hotel booking confirmation",
 ]
 
 CSV_FIELDS = ["created_at", "model", "prompt", "category", "scenario"]
@@ -119,13 +121,16 @@ def build_prompt(category: str, examples: list[str], disallow: list[str]) -> str
 Category: {category}
 Goal: Create multiple new scenario names for this category.
 Language: English
-Style: short noun phrase (2-4 words), lowercase preferred.
+Style: concrete mobile UI surface, short noun phrase (3-6 words), lowercase preferred.
 
 Hard constraints:
 1) Do NOT output anything except the scenario name.
 2) Do NOT duplicate or paraphrase existing examples/disallowed list.
 3) Must clearly belong to category '{category}'.
 4) Keep it practical for mobile widget UIs.
+5) Avoid abstract umbrella concepts (e.g., "hotel reservation", "travel booking", "music app").
+6) Prefer one specific user intent or screen state (e.g., search results, comparison, details, checkout, confirmation, tracking, summary).
+7) Each scenario should imply what the widget is helping the user do right now.
 
 Reference examples (do not reuse):
 {example_text}

@@ -201,3 +201,56 @@ python generate_widget_example_json.py   --base-url http://localhost:8000/v1   -
 - `--difficulty-fixed-level`: `fixed` 전략일 때 사용할 레벨 `low|medium|high` (기본: `medium`)
 - `--difficulty-seed`: `random` 전략 난수 시드 (기본: `42`)
 - `--limit-scenarios`: 앞에서 N개 시나리오만 테스트 생성 (기본: `0`, 전체)
+
+## 4단계: GenUI TSX 생성
+
+`generate_genui_tsx.py`는 3단계 JSON(`example_json`)을 입력으로 받아, **component 의존성이 없는 최소 UI 형태의 TSX**를 생성합니다.
+
+### 주요 동작
+
+- 입력: `mobile_widget_example_json.csv` (3단계)
+- 각 JSON row마다 동일한 프롬프트로 여러 번 호출해 샘플 생성 (`--samples-per-input`)
+  - 한 번의 호출에서는 TSX 1개만 생성
+  - 같은 입력에 대해 여러 번 호출하여 다양한 정답 후보를 축적
+- 출력은 SFT 용도로 바로 사용 가능하도록 `prompt` + `example_json` + `tsx_code` 저장
+- RLVR 등 후속 방법론을 고려해 `rlvr_reward_spec`(체크 항목/가중치) 함께 저장
+- CSV 저장 컬럼:
+  - `created_at`
+  - `model`
+  - `json_created_at`
+  - `json_model`
+  - `scenario_created_at`
+  - `scenario_model`
+  - `category`
+  - `scenario`
+  - `json_variant_index`
+  - `json_difficulty_target`
+  - `json_difficulty`
+  - `sample_index`
+  - `prompt`
+  - `example_json`
+  - `tsx_code`
+  - `format_ok`
+  - `uses_declared_actions`
+  - `rlvr_reward_spec`
+
+### 실행 방법
+
+```bash
+python generate_genui_tsx.py \
+  --base-url http://localhost:8000/v1 \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --json-csv mobile_widget_example_json.csv \
+  --tsx-csv mobile_widget_genui_tsx.csv
+```
+
+### 옵션
+
+- `--json-csv`: 3단계 JSON CSV 경로 (기본: `mobile_widget_example_json.csv`)
+- `--tsx-csv`: 4단계 TSX 출력 CSV 경로 (기본: `mobile_widget_genui_tsx.csv`)
+- `--base-url`: vLLM OpenAI 호환 API URL
+- `--api-key`: API 키
+- `--model`: 생성 모델명
+- `--temperature`: 샘플링 온도 (기본: `0.3`)
+- `--samples-per-input`: 입력 1개당 반복 생성 횟수 (기본: `3`)
+- `--limit-rows`: 앞에서 N개 JSON row만 테스트 생성 (기본: `0`, 전체)

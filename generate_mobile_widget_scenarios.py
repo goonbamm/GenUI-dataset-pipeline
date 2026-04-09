@@ -99,7 +99,7 @@ def load_existing(csv_path: Path) -> tuple[set[str], set[str]]:
     if not csv_path.exists():
         return existing_categories, existing_scenarios
 
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             category = (row.get("category") or "").strip()
@@ -235,7 +235,9 @@ def main() -> None:
         return
 
     file_exists = csv_path.exists()
-    with csv_path.open("a", encoding="utf-8", newline="") as f:
+    write_mode = "a" if file_exists else "w"
+    write_encoding = "utf-8" if file_exists else "utf-8-sig"
+    with csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         if not file_exists:
             writer.writeheader()

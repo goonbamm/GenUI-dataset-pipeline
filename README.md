@@ -125,3 +125,51 @@ python generate_widget_action_items.py \
 - `--max-items-per-scenario`: 시나리오당 최대 action item 개수 (기본: `3`)
 - `--max-examples`: 프롬프트 예시 개수 상한 (기본: `10`)
 - `--limit-scenarios`: 앞에서 N개 시나리오만 테스트 생성 (기본: `0`, 전체)
+
+
+## 3단계: 구체 예시 JSON 생성
+
+`generate_widget_example_json.py`는 1단계 시나리오 + 2단계 action item을 조합해서, 4단계 JSX/HTML 생성 시 바로 참고할 수 있는 **구체 데이터 JSON** 예시를 생성합니다.
+
+### 주요 동작
+
+- 입력:
+  - `mobile_widget_scenarios.csv` (1단계)
+  - `mobile_widget_action_items.csv` (2단계)
+- 시나리오 1개당 여러 개의 구체 JSON variant 생성 (`--variants-per-scenario`, 기본 3)
+- 내장된 10개 JSON 예시 풀에서 시나리오마다 무작위 일부를 선택해 프롬프트에 삽입 (`--max-examples`로 개수 조절)
+- 각 JSON 객체에 `actions` 키를 강제 포함
+  - action item이 있으면 함수명만 추출해 `actions`에 반영
+  - 필요 없으면 `actions: []`
+- 같은 시나리오에서도 다양한 도메인 변형(예: 쇼핑에서 커피/의류/전자제품 등)을 유도
+- CSV 저장 컬럼 (단일 파일 누적):
+  - `created_at`
+  - `model`
+  - `scenario_created_at`
+  - `scenario_model`
+  - `category`
+  - `scenario`
+  - `prompt`
+  - `action_items`
+  - `variant_index`
+  - `example_json`
+
+### 실행 방법
+
+```bash
+python generate_widget_example_json.py   --base-url http://localhost:8000/v1   --model Qwen/Qwen2.5-7B-Instruct   --scenario-csv mobile_widget_scenarios.csv   --action-csv mobile_widget_action_items.csv   --json-csv mobile_widget_example_json.csv
+```
+
+### 옵션
+
+- `--scenario-csv`: 1단계 시나리오 CSV 경로 (기본: `mobile_widget_scenarios.csv`)
+- `--action-csv`: 2단계 action item CSV 경로 (기본: `mobile_widget_action_items.csv`)
+- `--json-csv`: 3단계 JSON 예시 CSV 경로 (기본: `mobile_widget_example_json.csv`)
+- `--base-url`: vLLM OpenAI 호환 API URL
+- `--api-key`: API 키
+- `--model`: 생성 모델명
+- `--temperature`: 샘플링 온도 (기본: `0.5`)
+- `--variants-per-scenario`: 시나리오별 JSON variant 개수 (기본: `3`)
+- `--max-examples`: 프롬프트에 넣을 무작위 JSON 예시 개수 (기본: `3`)
+- `--example-seed`: 예시 샘플링 시드값 (기본: `42`)
+- `--limit-scenarios`: 앞에서 N개 시나리오만 테스트 생성 (기본: `0`, 전체)

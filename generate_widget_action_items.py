@@ -21,6 +21,8 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
+
 SCENARIO_FIELDS = ["created_at", "model", "prompt", "category", "scenario"]
 ACTION_FIELDS = [
     "created_at",
@@ -50,9 +52,7 @@ ACTION_EXAMPLES = [
 
 
 def normalize_text(text: str) -> str:
-    text = text.strip().lower()
-    text = re.sub(r"^[\-\d\.)\s]+", "", text)
-    return re.sub(r"\s+", " ", text)
+    return common_normalize_text(text, strip_prefix=True)
 
 
 def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
@@ -107,9 +107,7 @@ Examples:
 
 
 def sanitize_action_item(text: str) -> str:
-    cleaned = re.sub(r"^[\-\d\.)\s]+", "", text.strip())
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned
+    return normalize_spaces(strip_list_prefix(text.strip()))
 
 
 def extract_action_items(text: str) -> list[str]:

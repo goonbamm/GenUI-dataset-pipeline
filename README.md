@@ -327,7 +327,6 @@ python generate_widget_example_json.py \
   - 한 번의 호출에서는 TSX 1개만 생성
   - 같은 입력에 대해 여러 번 호출하여 다양한 정답 후보를 축적
 - 출력은 SFT 용도로 바로 사용 가능하도록 `prompt` + `example_json` + `tsx_code` 저장
-- RLVR 등 후속 방법론을 고려해 `rlvr_reward_spec`(체크 항목/가중치) 함께 저장
 - CSV 저장 컬럼:
   - `created_at`
   - `model`
@@ -346,7 +345,6 @@ python generate_widget_example_json.py \
   - `tsx_code`
   - `format_ok`
   - `uses_declared_tool_calls`
-  - `rlvr_reward_spec`
 
 #### 실행 방법
 

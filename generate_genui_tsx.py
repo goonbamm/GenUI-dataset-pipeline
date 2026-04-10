@@ -5,7 +5,7 @@ Stage 4 helper script:
 - Reads stage-3 JSON CSV (example_json column)
 - Prompts vLLM model to produce minimal TSX (no external component dependency)
 - Supports multi-sample generation by repeating the same prompt per input row
-- Saves rows suitable for SFT and RLVR-style post-training (prompt + output + checks)
+- Saves rows suitable for SFT-style post-training (prompt + output + checks)
 """
 
 from __future__ import annotations
@@ -54,7 +54,6 @@ TSX_FIELDS = [
     "tsx_code",
     "format_ok",
     "uses_declared_tool_calls",
-    "rlvr_reward_spec",
 ]
 
 
@@ -149,24 +148,6 @@ def check_tool_calls_used(tsx: str, tool_calls: list[str]) -> bool:
     return True
 
 
-def build_rlvr_reward_spec() -> str:
-    spec = {
-        "checks": [
-            {"name": "valid_tsx_shape", "rule": "contains export default + JSX return"},
-            {"name": "no_markdown_fence", "rule": "must not contain triple backticks"},
-            {"name": "minimal_html_only", "rule": "no external UI component imports"},
-            {"name": "tool_calls_covered", "rule": "declared tool calls should appear as labels/text"},
-        ],
-        "weights": {
-            "valid_tsx_shape": 0.35,
-            "no_markdown_fence": 0.15,
-            "minimal_html_only": 0.2,
-            "tool_calls_covered": 0.3,
-        },
-    }
-    return json.dumps(spec, ensure_ascii=False)
-
-
 class UnsupportedNError(RuntimeError):
     """Raised when server does not support n>1 in chat.completions.create."""
 
@@ -240,7 +221,6 @@ def main() -> None:
         return
 
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
-    rlvr_reward_spec = build_rlvr_reward_spec()
     rows_to_append: list[dict[str, str]] = []
     tasks: list[dict[str, object]] = []
 
@@ -384,7 +364,6 @@ def main() -> None:
                 "tsx_code": result["tsx_code"],
                 "format_ok": "1" if result["format_ok"] else "0",
                 "uses_declared_tool_calls": "1" if result["tool_calls_ok"] else "0",
-                "rlvr_reward_spec": rlvr_reward_spec,
             }
         )
 

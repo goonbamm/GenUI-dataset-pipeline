@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import math
 import os
 from pathlib import Path
 from typing import Iterable
@@ -91,12 +92,12 @@ def unique_preserve_order(items: Iterable[str]) -> list[str]:
     return out
 
 
-def load_existing(csv_path: Path) -> tuple[set[str], set[str]]:
-    existing_categories: set[str] = set()
+def load_existing(csv_path: Path) -> tuple[dict[str, set[str]], set[str]]:
+    existing_by_category: dict[str, set[str]] = {}
     existing_scenarios: set[str] = set()
 
     if not csv_path.exists():
-        return existing_categories, existing_scenarios
+        return existing_by_category, existing_scenarios
 
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -104,11 +105,14 @@ def load_existing(csv_path: Path) -> tuple[set[str], set[str]]:
             category = (row.get("category") or "").strip()
             scenario = (row.get("scenario") or "").strip()
             if category:
-                existing_categories.add(category)
+                existing_by_category.setdefault(category, set())
             if scenario:
-                existing_scenarios.add(normalize_text(scenario))
+                scenario_key = normalize_text(scenario)
+                existing_scenarios.add(scenario_key)
+                if category:
+                    existing_by_category.setdefault(category, set()).add(scenario_key)
 
-    return existing_categories, existing_scenarios
+    return existing_by_category, existing_scenarios
 
 
 def build_prompt(category: str, examples: list[str], disallow: list[str]) -> str:
@@ -159,6 +163,7 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--responses-per-category", type=int, default=1)
     parser.add_argument("--scenarios-per-response", type=int, default=5)
+    parser.add_argument("--target-per-category", type=int, default=None)
     parser.add_argument("--categories", nargs="*", default=DEFAULT_CATEGORIES)
     parser.add_argument("--max-examples", type=int, default=5)
     parser.add_argument("--max-disallow", type=int, default=5)
@@ -168,25 +173,33 @@ def main() -> None:
     examples = unique_preserve_order(RAW_EXAMPLES)[: args.max_examples]
     examples_norm = {normalize_text(e) for e in examples}
 
-    existing_categories, existing_scenarios = load_existing(csv_path)
+    existing_by_category, existing_scenarios = load_existing(csv_path)
 
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
 
     rows_to_append: list[dict[str, str]] = []
     generated_norm: set[str] = set(existing_scenarios)
+    target_per_category = args.target_per_category
+    if target_per_category is None:
+        target_per_category = args.responses_per_category * args.scenarios_per_response
 
     target_categories = [c.strip() for c in args.categories if c.strip()]
 
     for category in target_categories:
-        if category in existing_categories:
-            print(f"[SKIP] Category already exists in CSV: {category}")
+        category_existing = existing_by_category.get(category, set())
+        existing_count = len(category_existing)
+        print(f"[PROGRESS] {category}: existing {existing_count} / target {target_per_category}")
+
+        needed = target_per_category - existing_count
+        if needed <= 0:
             continue
 
         disallow = unique_preserve_order(list(existing_scenarios))[: args.max_disallow]
         accepted = 0
         now = dt.datetime.now(dt.timezone.utc).isoformat()
+        planned_responses = max(1, math.ceil(needed / args.scenarios_per_response))
 
-        for _ in range(args.responses_per_category):
+        for _ in range(planned_responses):
             prompt = build_prompt(category=category, examples=examples, disallow=disallow)
             prompt = (
                 f"{prompt}\n"
@@ -206,6 +219,9 @@ def main() -> None:
             for choice in completion.choices:
                 scenarios = extract_scenarios(choice.message.content or "")
                 for scenario in scenarios[: args.scenarios_per_response]:
+                    if accepted >= needed:
+                        break
+
                     key = normalize_text(scenario)
                     if not scenario:
                         continue
@@ -226,8 +242,13 @@ def main() -> None:
                     generated_norm.add(key)
                     accepted += 1
 
-        requested = args.responses_per_category * args.scenarios_per_response
-        print(f"[DONE] {category}: accepted {accepted} / requested {requested}")
+                if accepted >= needed:
+                    break
+
+            if accepted >= needed:
+                break
+
+        print(f"[DONE] {category}: accepted {accepted} / needed {needed} (target {target_per_category})")
 
     if not rows_to_append:
         print("No new scenarios generated.")

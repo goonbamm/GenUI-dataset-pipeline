@@ -168,6 +168,7 @@ def main() -> None:
 
     csv_path = Path(args.csv_path)
     examples = unique_preserve_order(RAW_EXAMPLES)[: args.max_examples]
+    examples_norm = {normalize_text(e) for e in examples}
 
     existing_categories, existing_scenarios = load_existing(csv_path)
 
@@ -212,7 +213,7 @@ def main() -> None:
                         continue
                     if key in generated_norm:
                         continue
-                    if key in {normalize_text(e) for e in examples}:
+                    if key in examples_norm:
                         continue
 
                     rows_to_append.append(

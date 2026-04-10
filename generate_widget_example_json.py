@@ -502,7 +502,8 @@ def main() -> None:
         )
         fallback_key = ("", "", row["category"], row["scenario"])
         action_items = action_map.get(strict_key) or action_map.get(fallback_key) or []
-        action_names = [extract_action_name(x) for x in action_items if extract_action_name(x)]
+        extracted_action_names = [extract_action_name(x) for x in action_items]
+        action_names = [name for name in extracted_action_names if name]
         difficulty_targets = build_difficulty_targets(
             variants_per_scenario=args.variants_per_scenario,
             strategy=args.difficulty_strategy,

@@ -77,7 +77,7 @@ python generate_genui_tsx.py
 
 - 카테고리별로 시나리오 생성 요청
 - 모델 응답 1회당 기본 5개 시나리오 생성
-- CSV에 이미 존재하는 카테고리는 자동으로 **생성 제외**
+- 카테고리별 기존 시나리오 수를 확인해 `target` 미만일 때만 **부족분만 추가 생성**
 - 예시 목록/기존 시나리오와 중복되지 않도록 프롬프트 제약 + 후처리 필터링
 - 추상적 주제(예: `hotel reservation`) 대신 화면/의도 단위의 구체 시나리오를 유도
   - 예: `hotel search results`, `hotel room comparison`, `hotel booking payment`, `hotel booking confirmation`
@@ -114,19 +114,20 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
 - `--temperature`: 샘플링 온도 (기본: `0.8`)
 - `--responses-per-category`: 카테고리별 모델 호출 횟수 (기본: `1`)
 - `--scenarios-per-response`: 모델 응답 1회당 목표 시나리오 개수 (기본: `5`)
+- `--target-per-category`: 카테고리별 최종 목표 시나리오 수 (기본: `responses-per-category * scenarios-per-response`)
 - `--categories`: 생성 대상 카테고리 목록
 - `--max-examples`: 프롬프트에 넣는 예시 개수 (기본: `5`)
 - `--max-disallow`: 프롬프트에 넣는 기존 금지 시나리오 개수 (기본: `5`)
 
 #### 출력 예시
 
-- `[SKIP] Category already exists in CSV: 쇼핑`
-- `[DONE] 여행: accepted 5 / requested 5`
+- `[PROGRESS] 쇼핑: existing 3 / target 5`
+- `[DONE] 쇼핑: accepted 2 / needed 2 (target 5)`
 - `Saved 54 rows to mobile_widget_scenarios.csv`
 
 #### 참고
 
-- 스크립트는 CSV에 `category` 컬럼이 있을 때 해당 컬럼을 기준으로 중복 카테고리를 판단합니다.
+- 스크립트는 CSV의 `category`+`scenario`를 읽어 카테고리별 누적 개수를 계산하고, `target`까지의 부족분만 생성합니다.
 - 모델 출력 품질에 따라 실제 저장 개수는 요청 개수보다 적을 수 있습니다(중복/금지어 필터링).
 
 </details>

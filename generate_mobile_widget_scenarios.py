@@ -16,6 +16,7 @@ import csv
 import datetime as dt
 import math
 import os
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -154,6 +155,30 @@ def extract_scenarios(text: str) -> list[str]:
     return [sanitize_scenario(line) for line in lines if sanitize_scenario(line)]
 
 
+def is_valid_surface_form(s: str) -> bool:
+    text = s.strip()
+    if not text:
+        return False
+
+    if not (12 <= len(text) <= 64):
+        return False
+
+    words = [token for token in text.split() if token]
+    if not (3 <= len(words) <= 6):
+        return False
+
+    if any(mark in text for mark in ".!?"):
+        return False
+
+    if text.count(":") > 1:
+        return False
+
+    if not re.fullmatch(r"[A-Za-z0-9:\- ]+", text):
+        return False
+
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv-path", default="mobile_widget_scenarios.csv")
@@ -230,6 +255,8 @@ def main() -> None:
 
                     key = normalize_text(scenario)
                     if not scenario:
+                        continue
+                    if not is_valid_surface_form(scenario):
                         continue
                     if key in generated_norm:
                         continue

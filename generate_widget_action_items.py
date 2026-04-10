@@ -15,7 +15,6 @@ import concurrent.futures
 import csv
 import datetime as dt
 import os
-import re
 import time
 from pathlib import Path
 
@@ -23,7 +22,6 @@ from openai import OpenAI
 
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
-SCENARIO_FIELDS = ["created_at", "model", "prompt", "category", "scenario"]
 ACTION_FIELDS = [
     "created_at",
     "model",

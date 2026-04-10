@@ -23,8 +23,6 @@ from pathlib import Path
 
 from openai import OpenAI
 
-from common.text import normalize_text as common_normalize_text
-
 SCENARIO_REQUIRED_FIELDS = ["created_at", "model", "category", "scenario"]
 ACTION_REQUIRED_FIELDS = ["scenario_created_at", "scenario_model", "category", "scenario", "action_item"]
 
@@ -125,10 +123,6 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
 ]
 
 DIFFICULTY_LEVELS = ["low", "medium", "high"]
-
-
-def normalize_text(text: str) -> str:
-    return common_normalize_text(text)
 
 
 def load_scenarios(csv_path: Path) -> list[dict[str, str]]:

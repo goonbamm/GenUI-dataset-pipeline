@@ -49,6 +49,32 @@ TOOL_CALL_EXAMPLES = [
     'show_recipe(dish="tofu_kimchi_stew", servings=2, difficulty="easy") - recipe detail card',
 ]
 
+PLACEHOLDER_PARAM_NAMES = {
+    "param",
+    "params",
+    "parameter",
+    "parameters",
+    "arg",
+    "args",
+    "input",
+    "inputs",
+    "data",
+    "payload",
+    "value",
+    "values",
+}
+
+GENERIC_FUNCTION_NAMES = {
+    "do_action",
+    "run_task",
+    "execute_task",
+    "process_data",
+    "handle_input",
+    "perform_action",
+}
+
+MAX_DESCRIPTION_LENGTH = 80
+
 
 def normalize_text(text: str) -> str:
     return common_normalize_text(text, strip_prefix=True)
@@ -153,20 +179,56 @@ def validate_tool_call_format(text: str) -> bool:
     return True
 
 
+def parse_tool_call_parts(text: str) -> tuple[str, str, str] | None:
+    match = re.fullmatch(r"([a-z]+(?:_[a-z0-9]+)*)\((.*)\)\s*-\s*(.+)", text)
+    if not match:
+        return None
+    return match.group(1), match.group(2).strip(), match.group(3).strip()
+
+
+def extract_param_names(params: str) -> list[str]:
+    return [m.group(1).lower() for m in re.finditer(r"(?:^|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=", params)]
+
+
+def validate_tool_call_content(text: str) -> bool:
+    parts = parse_tool_call_parts(text)
+    if not parts:
+        return False
+
+    function_name, params, description = parts
+    if function_name in GENERIC_FUNCTION_NAMES:
+        return False
+
+    if len(description) > MAX_DESCRIPTION_LENGTH:
+        return False
+
+    param_names = extract_param_names(params)
+    if not param_names:
+        return False
+    if any(name in PLACEHOLDER_PARAM_NAMES for name in param_names):
+        return False
+
+    return True
+
+
 def extract_tool_calls(text: str) -> list[str]:
     if not text:
         return []
 
     results: list[str] = []
     seen: set[str] = set()
-    dropped_count = 0
+    dropped_by_format = 0
+    dropped_by_content = 0
 
     for raw in text.strip().splitlines():
         item = normalize_tool_call_format(raw)
         if not item:
             continue
         if not validate_tool_call_format(item):
-            dropped_count += 1
+            dropped_by_format += 1
+            continue
+        if not validate_tool_call_content(item):
+            dropped_by_content += 1
             continue
         key = normalize_text(item)
         if key in seen:
@@ -174,8 +236,10 @@ def extract_tool_calls(text: str) -> list[str]:
         seen.add(key)
         results.append(item)
 
-    if dropped_count:
-        print(f"[WARN] Dropped {dropped_count} invalid tool call(s) due to format validation.")
+    if dropped_by_format:
+        print(f"[WARN] Dropped {dropped_by_format} invalid tool call(s) due to format validation.")
+    if dropped_by_content:
+        print(f"[WARN] Dropped {dropped_by_content} invalid tool call(s) due to content validation.")
 
     return results
 

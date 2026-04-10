@@ -22,7 +22,7 @@ flowchart LR
 
 | 파라미터 | 의미 | 기본값 |
 |---|---|---:|
-| `categories` | 생성 대상 카테고리 수 | 7 |
+| `categories` | 생성 대상 카테고리 수 | 11 |
 | `target_per_category` | 카테고리당 1단계 목표 시나리오 수 | 5 |
 | `max_items_per_scenario` | 시나리오당 2단계 tool call 최대 개수 | 3 |
 | `variants_per_scenario` | 시나리오당 3단계 JSON variant 개수 | 3 |
@@ -30,11 +30,11 @@ flowchart LR
 
 #### 단계별 계산 (기본값)
 
-- **1단계**: `7 × 5 = 35`
-- **2단계**: `35 × 3 = 105`
-- **3단계**: `35 × 3 = 105`  
+- **1단계**: `11 × 5 = 55`
+- **2단계**: `55 × 3 = 165`
+- **3단계**: `55 × 3 = 165`  
   (※ 3단계는 **tool call 수가 아니라 시나리오 수(1단계 결과)**를 기준으로 variant를 만듭니다.)
-- **4단계**: `105 × 3 = 315`
+- **4단계**: `165 × 3 = 495`
 
 #### 일반식 (S1~S4)
 
@@ -147,7 +147,7 @@ python generate_mobile_widget_scenarios.py \
 카테고리 직접 지정:
 
 ```bash
-python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 캘린더 여행 요리 운동
+python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 캘린더 여행 요리 운동 금융 생산성 커뮤니케이션 헬스케어
 ```
 
 #### 옵션

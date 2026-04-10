@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate action items for widget scenarios via vLLM (OpenAI-compatible API).
+"""Generate tool calls for widget scenarios via vLLM (OpenAI-compatible API).
 
 Stage 2 helper script:
 - Reads scenario rows from stage1 CSV (default: mobile_widget_scenarios.csv)
-- For each scenario, requests up to N action items (default: 3)
-- Appends results to action-item CSV (default: mobile_widget_action_items.csv)
+- For each scenario, requests up to N tool calls (default: 3)
+- Appends results to tool-call CSV (default: mobile_widget_tool_calls.csv)
 - Keeps duplicates if they differ by created date/model/scenario (intentional)
 """
 
@@ -22,7 +22,7 @@ from openai import OpenAI
 
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
-ACTION_FIELDS = [
+TOOL_CALL_FIELDS = [
     "created_at",
     "model",
     "row_index",
@@ -32,10 +32,10 @@ ACTION_FIELDS = [
     "category",
     "scenario",
     "prompt",
-    "action_item",
+    "tool_call",
 ]
 
-ACTION_EXAMPLES = [
+TOOL_CALL_EXAMPLES = [
     "get_weather(params) - weather widget",
     "search_flights(params) - flight search",
     "show_stock_chart(params) - stock chart",
@@ -85,14 +85,14 @@ def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
 
 def build_prompt(category: str, scenario: str, examples: list[str], max_items: int) -> str:
     example_text = "\n".join(f"- {item}" for item in examples)
-    return f"""You create function-style action items for a Generative UI widget scenario.
+    return f"""You create function-style tool calls for a Generative UI widget scenario.
 
 Category: {category}
 Scenario: {scenario}
-Goal: Propose practical actions a widget can execute.
+Goal: Propose practical tool calls a widget can execute.
 
 Output constraints:
-1) Return only action item lines.
+1) Return only tool call lines.
 2) Each line must use this format: function_name(params) - short description
 3) Use snake_case for function_name.
 4) Keep each description concise and concrete.
@@ -104,11 +104,11 @@ Examples:
 """
 
 
-def sanitize_action_item(text: str) -> str:
+def sanitize_tool_call(text: str) -> str:
     return normalize_spaces(strip_list_prefix(text.strip()))
 
 
-def extract_action_items(text: str) -> list[str]:
+def extract_tool_calls(text: str) -> list[str]:
     if not text:
         return []
 
@@ -116,7 +116,7 @@ def extract_action_items(text: str) -> list[str]:
     seen: set[str] = set()
 
     for raw in text.strip().splitlines():
-        item = sanitize_action_item(raw)
+        item = sanitize_tool_call(raw)
         if not item:
             continue
         key = normalize_text(item)
@@ -156,7 +156,7 @@ def create_completion_with_retry(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
-    parser.add_argument("--action-csv", default="mobile_widget_action_items.csv")
+    parser.add_argument("--tool-call-csv", default="mobile_widget_tool_calls.csv")
     parser.add_argument("--base-url", default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"))
     parser.add_argument("--api-key", default=os.getenv("VLLM_API_KEY", "EMPTY"))
     parser.add_argument("--model", default=os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"))
@@ -180,7 +180,7 @@ def main() -> None:
         print("No scenarios found to process.")
         return
 
-    examples = ACTION_EXAMPLES[: max(1, args.max_examples)]
+    examples = TOOL_CALL_EXAMPLES[: max(1, args.max_examples)]
 
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
 
@@ -203,14 +203,14 @@ def main() -> None:
             messages=[
                 {
                     "role": "system",
-                    "content": "You output concise widget action items in function format.",
+                    "content": "You output concise widget tool calls in function format.",
                 },
                 {"role": "user", "content": prompt},
             ],
         )
 
         output_text = completion.choices[0].message.content or ""
-        items = extract_action_items(output_text)[: args.max_items_per_scenario]
+        items = extract_tool_calls(output_text)[: args.max_items_per_scenario]
         return {
             "row_index": row_index,
             "sample_index": 1,
@@ -264,25 +264,25 @@ def main() -> None:
                     "category": row["category"],
                     "scenario": row["scenario"],
                     "prompt": prompt,
-                    "action_item": item,
+                    "tool_call": item,
                 }
             )
 
     if not rows_to_append:
-        print("No action items generated.")
+        print("No tool calls generated.")
         return
 
-    action_csv_path = Path(args.action_csv)
-    file_exists = action_csv_path.exists()
+    tool_call_csv_path = Path(args.tool_call_csv)
+    file_exists = tool_call_csv_path.exists()
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
-    with action_csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=ACTION_FIELDS)
+    with tool_call_csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=TOOL_CALL_FIELDS)
         if not file_exists:
             writer.writeheader()
         writer.writerows(rows_to_append)
 
-    print(f"Saved {len(rows_to_append)} rows to {action_csv_path}")
+    print(f"Saved {len(rows_to_append)} rows to {tool_call_csv_path}")
 
 
 if __name__ == "__main__":

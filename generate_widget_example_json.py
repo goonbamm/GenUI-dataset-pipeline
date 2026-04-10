@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Generate stage-3 concrete widget example JSON rows from scenarios + action items.
+"""Generate stage-3 concrete widget example JSON rows from scenarios + tool calls.
 
 Stage 3 helper script:
-- Reads stage1 scenario CSV and stage2 action-item CSV
+- Reads stage1 scenario CSV and stage2 tool-call CSV
 - For each scenario, asks LLM for multiple concrete JSON examples
 - Ensures each JSON object includes an `actions` key
 - Appends one CSV row per JSON example (for later stage-4 JSX/HTML generation)
@@ -24,7 +24,7 @@ from pathlib import Path
 from openai import OpenAI
 
 SCENARIO_REQUIRED_FIELDS = ["created_at", "model", "category", "scenario"]
-ACTION_REQUIRED_FIELDS = ["scenario_created_at", "scenario_model", "category", "scenario", "action_item"]
+TOOL_CALL_REQUIRED_FIELDS = ["scenario_created_at", "scenario_model", "category", "scenario", "tool_call"]
 
 EXAMPLE_JSON_FIELDS = [
     "created_at",
@@ -36,7 +36,7 @@ EXAMPLE_JSON_FIELDS = [
     "category",
     "scenario",
     "prompt",
-    "action_items",
+    "tool_calls",
     "variant_index",
     "difficulty_target",
     "difficulty",
@@ -157,7 +157,7 @@ def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def load_action_items(csv_path: Path) -> dict[tuple[str, str, str, str], list[str]]:
+def load_tool_calls(csv_path: Path) -> dict[tuple[str, str, str, str], list[str]]:
     if not csv_path.exists():
         return {}
 
@@ -167,16 +167,17 @@ def load_action_items(csv_path: Path) -> dict[tuple[str, str, str, str], list[st
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
-        missing = [col for col in ACTION_REQUIRED_FIELDS if col not in headers]
+        missing = [col for col in TOOL_CALL_REQUIRED_FIELDS if col not in headers]
         if missing:
             raise ValueError(
-                f"Action CSV is missing required columns {missing}. "
+                "Tool-call CSV is missing required columns "
+                f"{missing}. "
                 f"Found columns: {headers}"
             )
 
         for row in reader:
-            action_item = (row.get("action_item") or "").strip()
-            if not action_item:
+            tool_call = (row.get("tool_call") or "").strip()
+            if not tool_call:
                 continue
 
             strict_key = (
@@ -186,13 +187,13 @@ def load_action_items(csv_path: Path) -> dict[tuple[str, str, str, str], list[st
                 (row.get("scenario") or "").strip(),
             )
             by_strict_key.setdefault(strict_key, [])
-            if action_item not in by_strict_key[strict_key]:
-                by_strict_key[strict_key].append(action_item)
+            if tool_call not in by_strict_key[strict_key]:
+                by_strict_key[strict_key].append(tool_call)
 
             fallback_key = (strict_key[2], strict_key[3])
             fallback_by_scenario.setdefault(fallback_key, [])
-            if action_item not in fallback_by_scenario[fallback_key]:
-                fallback_by_scenario[fallback_key].append(action_item)
+            if tool_call not in fallback_by_scenario[fallback_key]:
+                fallback_by_scenario[fallback_key].append(tool_call)
 
     resolved: dict[tuple[str, str, str, str], list[str]] = {}
     for key, items in by_strict_key.items():
@@ -208,12 +209,12 @@ def load_action_items(csv_path: Path) -> dict[tuple[str, str, str, str], list[st
 def build_prompt(
     category: str,
     scenario: str,
-    action_items: list[str],
+    tool_calls: list[str],
     variants_per_scenario: int,
     fewshot_examples: list[dict[str, object]],
     difficulty_targets: list[str],
 ) -> str:
-    action_list_text = "\n".join(f"- {x}" for x in action_items) if action_items else "- (none)"
+    tool_call_text = "\n".join(f"- {x}" for x in tool_calls) if tool_calls else "- (none)"
     fewshot_text = (
         "\n".join(f"- {json.dumps(item, ensure_ascii=False)}" for item in fewshot_examples)
         if fewshot_examples
@@ -231,8 +232,8 @@ Category: {category}
 Scenario: {scenario}
 Goal: Create realistic data objects that can be directly used to render UI in stage 4 (JSX/HTML).
 
-Action items from stage 2:
-{action_list_text}
+Tool calls from stage 2:
+{tool_call_text}
 
 Reference JSON examples (style only, do not copy values as-is):
 {fewshot_text}
@@ -240,8 +241,8 @@ Reference JSON examples (style only, do not copy values as-is):
 Requirements:
 1) Return ONLY a JSON array with exactly {variants_per_scenario} objects.
 2) Every object must include "actions" key with a JSON array of snake_case action names.
-3) If action items are given, map them into the actions list (function name only, no params/description).
-4) If no action item is needed, set "actions": [].
+3) If tool calls are given, map them into the actions list (function name only, no params/description).
+4) If no tool call is needed, set "actions": [].
 5) Add concrete, user-facing fields relevant to the scenario (dates, names, numbers, status, prices, etc.).
 6) Use realistic values and keep key names in snake_case.
 7) Variants should describe the same core user case/entity, and differ mainly by information complexity.
@@ -279,11 +280,11 @@ def parse_json_array(text: str) -> list[dict]:
     return out
 
 
-def extract_action_name(action_item: str) -> str:
-    m = re.match(r"\s*([a-zA-Z0-9_]+)\s*\(", action_item)
+def extract_action_name(tool_call: str) -> str:
+    m = re.match(r"\s*([a-zA-Z0-9_]+)\s*\(", tool_call)
     if m:
         return m.group(1)
-    raw = re.sub(r"\s*-.*$", "", action_item).strip()
+    raw = re.sub(r"\s*-.*$", "", tool_call).strip()
     raw = re.sub(r"[^a-zA-Z0-9_]+", "_", raw)
     raw = re.sub(r"_+", "_", raw).strip("_")
     return raw.lower()
@@ -351,7 +352,7 @@ def _inspect_json(value: object, depth: int = 1) -> dict[str, int]:
 
 def estimate_difficulty(
     scenario: str,
-    action_items: list[str],
+    tool_calls: list[str],
     action_names: list[str],
     json_obj: dict,
 ) -> str:
@@ -374,9 +375,9 @@ def estimate_difficulty(
     payload_score = min(stats["string_chars"], 260) / 260 * 10
     scenario_score = min(scenario_words, 18) / 18 * 10
 
-    # Penalize when stage2 had many raw action items but extraction collapsed heavily.
+    # Penalize when stage2 had many raw tool calls but extraction collapsed heavily.
     # (signals noisy or inconsistent action specification)
-    raw_action_count = len([x for x in action_items if x.strip()])
+    raw_action_count = len([x for x in tool_calls if x.strip()])
     ambiguity_bonus = min(max(raw_action_count - action_count, 0), 4) * 1.25
 
     total_score = round(min(action_score + field_score + structure_score + payload_score + scenario_score + ambiguity_bonus, 100))
@@ -437,7 +438,7 @@ def create_completion_with_retry(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
-    parser.add_argument("--action-csv", default="mobile_widget_action_items.csv")
+    parser.add_argument("--tool-call-csv", default="mobile_widget_tool_calls.csv")
     parser.add_argument("--json-csv", default="mobile_widget_example_json.csv")
     parser.add_argument("--base-url", default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"))
     parser.add_argument("--api-key", default=os.getenv("VLLM_API_KEY", "EMPTY"))
@@ -483,7 +484,7 @@ def main() -> None:
         print("No scenarios found to process.")
         return
 
-    action_map = load_action_items(Path(args.action_csv))
+    tool_call_map = load_tool_calls(Path(args.tool_call_csv))
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
     rand = random.Random(args.example_seed)
     difficulty_rand = random.Random(args.difficulty_seed)
@@ -496,8 +497,8 @@ def main() -> None:
             row["scenario"],
         )
         fallback_key = ("", "", row["category"], row["scenario"])
-        action_items = action_map.get(strict_key) or action_map.get(fallback_key) or []
-        extracted_action_names = [extract_action_name(x) for x in action_items]
+        tool_calls = tool_call_map.get(strict_key) or tool_call_map.get(fallback_key) or []
+        extracted_action_names = [extract_action_name(x) for x in tool_calls]
         action_names = [name for name in extracted_action_names if name]
         difficulty_targets = build_difficulty_targets(
             variants_per_scenario=args.variants_per_scenario,
@@ -515,7 +516,7 @@ def main() -> None:
         prompt = build_prompt(
             category=row["category"],
             scenario=row["scenario"],
-            action_items=action_items,
+            tool_calls=tool_calls,
             variants_per_scenario=args.variants_per_scenario,
             fewshot_examples=prompt_examples,
             difficulty_targets=difficulty_targets,
@@ -541,7 +542,7 @@ def main() -> None:
             "sample_index": 1,
             "row": row,
             "prompt": prompt,
-            "action_items": action_items,
+            "tool_calls": tool_calls,
             "action_names": action_names,
             "difficulty_targets": difficulty_targets,
             "variants": variants[: args.variants_per_scenario],
@@ -577,7 +578,7 @@ def main() -> None:
         sample_index = int(result["sample_index"])
         row = result["row"]
         prompt = str(result["prompt"])
-        action_items = result["action_items"]
+        tool_calls = result["tool_calls"]
         action_names = result["action_names"]
         difficulty_targets = result["difficulty_targets"]
         variants = result["variants"]
@@ -587,7 +588,7 @@ def main() -> None:
             target_level = difficulty_targets[variant_index - 1]
             difficulty = estimate_difficulty(
                 scenario=row["scenario"],
-                action_items=action_items,
+                tool_calls=tool_calls,
                 action_names=action_names,
                 json_obj=ensured,
             )
@@ -602,7 +603,7 @@ def main() -> None:
                     "category": row["category"],
                     "scenario": row["scenario"],
                     "prompt": prompt,
-                    "action_items": json.dumps(action_items, ensure_ascii=False),
+                    "tool_calls": json.dumps(tool_calls, ensure_ascii=False),
                     "variant_index": str(variant_index),
                     "difficulty_target": target_level,
                     "difficulty": difficulty,

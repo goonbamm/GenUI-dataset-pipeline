@@ -4,7 +4,7 @@
 Stage 3 helper script:
 - Reads stage1 scenario CSV and stage2 tool-call CSV
 - For each scenario, asks LLM for multiple concrete JSON examples
-- Ensures each JSON object includes an `actions` key
+- Ensures each JSON object includes a `tool_calls` key
 - Appends one CSV row per JSON example (for later stage-4 JSX/HTML generation)
 """
 
@@ -50,7 +50,7 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "price_krw": 12900,
         "discount_percent": 15,
         "delivery_eta": "2026-04-12",
-        "actions": ["search_products", "add_to_cart", "buy_now"],
+        "tool_calls": ["search_products", "add_to_cart", "buy_now"],
     },
     {
         "product_name": "linen_oversized_shirt",
@@ -58,14 +58,14 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "color": "ivory",
         "price_krw": 45900,
         "stock_status": "in_stock",
-        "actions": ["select_variant", "add_to_cart", "checkout"],
+        "tool_calls": ["select_variant", "add_to_cart", "checkout"],
     },
     {
         "hotel_name": "ulsan_river_hotel",
         "reservation_date": "2026-03-26T08:00:00+09:00",
         "room_number": "301",
         "reservation_status": "confirmed",
-        "actions": ["get_reservation_information", "cancel_reservation"],
+        "tool_calls": ["get_reservation_information", "cancel_reservation"],
     },
     {
         "flight_number": "KE102",
@@ -73,7 +73,7 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "departure_time": "2026-05-02T09:40:00+09:00",
         "gate": "A12",
         "boarding_status": "boarding_soon",
-        "actions": ["view_boarding_pass", "check_flight_status"],
+        "tool_calls": ["view_boarding_pass", "check_flight_status"],
     },
     {
         "team": "lions_fc",
@@ -81,7 +81,7 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "opponent": "seoul_city_fc",
         "seat_section": "E2",
         "ticket_status": "paid",
-        "actions": ["view_ticket_qr", "cancel_ticket"],
+        "tool_calls": ["view_ticket_qr", "cancel_ticket"],
     },
     {
         "calendar_date": "2026-04-10",
@@ -90,35 +90,35 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
             {"title": "client_call", "time": "15:30"},
         ],
         "busy_slots": 2,
-        "actions": ["create_event", "open_event_detail"],
+        "tool_calls": ["create_event", "open_event_detail"],
     },
     {
         "playlist_name": "focus_lofi_mix",
         "current_track": "night_rain_loop",
         "remaining_tracks": 12,
         "playback_mode": "shuffle",
-        "actions": ["play_music", "skip_track", "save_playlist"],
+        "tool_calls": ["play_music", "skip_track", "save_playlist"],
     },
     {
         "recipe_name": "tofu_kimchi_stew",
         "servings": 2,
         "cook_time_min": 25,
         "missing_ingredients": ["tofu"],
-        "actions": ["show_recipe", "add_ingredients_to_cart"],
+        "tool_calls": ["show_recipe", "add_ingredients_to_cart"],
     },
     {
         "workout_type": "interval_running",
         "target_duration_min": 30,
         "calorie_goal": 280,
         "progress_percent": 40,
-        "actions": ["start_workout", "pause_workout", "finish_workout"],
+        "tool_calls": ["start_workout", "pause_workout", "finish_workout"],
     },
     {
         "package_id": "KR-1Z-88A2",
         "carrier": "cj_logistics",
         "status": "out_for_delivery",
         "estimated_arrival": "2026-04-09T19:00:00+09:00",
-        "actions": ["track_package", "contact_courier"],
+        "tool_calls": ["track_package", "contact_courier"],
     },
 ]
 
@@ -240,9 +240,9 @@ Reference JSON examples (style only, do not copy values as-is):
 
 Requirements:
 1) Return ONLY a JSON array with exactly {variants_per_scenario} objects.
-2) Every object must include "actions" key with a JSON array of snake_case action names.
-3) If tool calls are given, map them into the actions list (function name only, no params/description).
-4) If no tool call is needed, set "actions": [].
+2) Every object must include "tool_calls" key with a JSON array of snake_case function names.
+3) If tool calls are given, map them into the tool_calls list (function name only, no params/description).
+4) If no tool call is needed, set "tool_calls": [].
 5) Add concrete, user-facing fields relevant to the scenario (dates, names, numbers, status, prices, etc.).
 6) Use realistic values and keep key names in snake_case.
 7) Variants should describe the same core user case/entity, and differ mainly by information complexity.
@@ -280,7 +280,7 @@ def parse_json_array(text: str) -> list[dict]:
     return out
 
 
-def extract_action_name(tool_call: str) -> str:
+def extract_tool_call_name(tool_call: str) -> str:
     m = re.match(r"\s*([a-zA-Z0-9_]+)\s*\(", tool_call)
     if m:
         return m.group(1)
@@ -290,21 +290,21 @@ def extract_action_name(tool_call: str) -> str:
     return raw.lower()
 
 
-def ensure_actions(obj: dict, fallback_action_names: list[str]) -> dict:
+def ensure_tool_calls(obj: dict, fallback_tool_call_names: list[str]) -> dict:
     updated = dict(obj)
-    actions = updated.get("actions")
-    if not isinstance(actions, list):
-        actions = []
+    tool_calls = updated.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        tool_calls = []
 
-    cleaned_actions: list[str] = []
-    for item in actions:
+    cleaned_tool_calls: list[str] = []
+    for item in tool_calls:
         if isinstance(item, str) and item.strip():
-            cleaned_actions.append(item.strip())
+            cleaned_tool_calls.append(item.strip())
 
-    if not cleaned_actions and fallback_action_names:
-        cleaned_actions = fallback_action_names
+    if not cleaned_tool_calls and fallback_tool_call_names:
+        cleaned_tool_calls = fallback_tool_call_names
 
-    updated["actions"] = cleaned_actions
+    updated["tool_calls"] = cleaned_tool_calls
     return updated
 
 
@@ -315,15 +315,15 @@ def _inspect_json(value: object, depth: int = 1) -> dict[str, int]:
         "object_nodes": 0,
         "array_nodes": 0,
         "leaf_nodes": 0,
-        "non_action_keys": 0,
+        "non_tool_call_keys": 0,
         "array_items": 0,
         "string_chars": 0,
     }
     if isinstance(value, dict):
         stats["object_nodes"] += 1
         for key, child in value.items():
-            if key != "actions":
-                stats["non_action_keys"] += 1
+            if key != "tool_calls":
+                stats["non_tool_call_keys"] += 1
             child_stats = _inspect_json(child, depth + 1)
             for k, v in child_stats.items():
                 if k == "max_depth":
@@ -353,12 +353,12 @@ def _inspect_json(value: object, depth: int = 1) -> dict[str, int]:
 def estimate_difficulty(
     scenario: str,
     tool_calls: list[str],
-    action_names: list[str],
+    tool_call_names: list[str],
     json_obj: dict,
 ) -> str:
     """Estimate per-variant generation difficulty as low/medium/high + score."""
-    unique_action_names = sorted(set(x for x in action_names if x))
-    action_count = len(unique_action_names)
+    unique_tool_call_names = sorted(set(x for x in tool_call_names if x))
+    tool_call_count = len(unique_tool_call_names)
     scenario_words = len(re.findall(r"[a-zA-Z0-9가-힣_]+", scenario))
 
     stats = _inspect_json(json_obj)
@@ -369,18 +369,18 @@ def estimate_difficulty(
         + min(stats["array_items"], 20)
     )
 
-    action_score = min(action_count, 8) / 8 * 35
-    field_score = min(stats["non_action_keys"], 14) / 14 * 25
+    tool_call_score = min(tool_call_count, 8) / 8 * 35
+    field_score = min(stats["non_tool_call_keys"], 14) / 14 * 25
     structure_score = min(structural_raw, 26) / 26 * 20
     payload_score = min(stats["string_chars"], 260) / 260 * 10
     scenario_score = min(scenario_words, 18) / 18 * 10
 
     # Penalize when stage2 had many raw tool calls but extraction collapsed heavily.
-    # (signals noisy or inconsistent action specification)
-    raw_action_count = len([x for x in tool_calls if x.strip()])
-    ambiguity_bonus = min(max(raw_action_count - action_count, 0), 4) * 1.25
+    # (signals noisy or inconsistent tool-call specification)
+    raw_tool_call_count = len([x for x in tool_calls if x.strip()])
+    ambiguity_bonus = min(max(raw_tool_call_count - tool_call_count, 0), 4) * 1.25
 
-    total_score = round(min(action_score + field_score + structure_score + payload_score + scenario_score + ambiguity_bonus, 100))
+    total_score = round(min(tool_call_score + field_score + structure_score + payload_score + scenario_score + ambiguity_bonus, 100))
     if total_score < 34:
         level = "low"
     elif total_score < 67:
@@ -498,8 +498,8 @@ def main() -> None:
         )
         fallback_key = ("", "", row["category"], row["scenario"])
         tool_calls = tool_call_map.get(strict_key) or tool_call_map.get(fallback_key) or []
-        extracted_action_names = [extract_action_name(x) for x in tool_calls]
-        action_names = [name for name in extracted_action_names if name]
+        extracted_tool_call_names = [extract_tool_call_name(x) for x in tool_calls]
+        tool_call_names = [name for name in extracted_tool_call_names if name]
         difficulty_targets = build_difficulty_targets(
             variants_per_scenario=args.variants_per_scenario,
             strategy=args.difficulty_strategy,
@@ -543,7 +543,7 @@ def main() -> None:
             "row": row,
             "prompt": prompt,
             "tool_calls": tool_calls,
-            "action_names": action_names,
+            "tool_call_names": tool_call_names,
             "difficulty_targets": difficulty_targets,
             "variants": variants[: args.variants_per_scenario],
         }
@@ -579,17 +579,17 @@ def main() -> None:
         row = result["row"]
         prompt = str(result["prompt"])
         tool_calls = result["tool_calls"]
-        action_names = result["action_names"]
+        tool_call_names = result["tool_call_names"]
         difficulty_targets = result["difficulty_targets"]
         variants = result["variants"]
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         for variant_index, obj in enumerate(variants, start=1):
-            ensured = ensure_actions(obj, action_names)
+            ensured = ensure_tool_calls(obj, tool_call_names)
             target_level = difficulty_targets[variant_index - 1]
             difficulty = estimate_difficulty(
                 scenario=row["scenario"],
                 tool_calls=tool_calls,
-                action_names=action_names,
+                tool_call_names=tool_call_names,
                 json_obj=ensured,
             )
             rows_to_append.append(

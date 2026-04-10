@@ -142,7 +142,7 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
 - [ ] 2단계 산출물이 `tool_call` 헤더를 사용하는지 확인.
 - [ ] 3단계 출력 CSV 헤더가 `tool_calls`인지 확인 .
 - [ ] 샘플 데이터/테스트 fixture에서 `tool_call`/`tool_calls` 표준 헤더 사용 여부를 점검.
-- [ ] 후속 소비 스크립트 `generate_genui_tsx.py`는 `example_json` 내부의 `actions`만 사용하므로 3단계 컬럼명 변경 영향이 없는지 smoke test로 확인.
+- [ ] 후속 소비 스크립트 `generate_genui_tsx.py`는 `example_json` 내부의 `tool_calls`만 사용하므로 3단계 컬럼명 변경 영향이 없는지 smoke test로 확인.
 - [ ] 용어 표준(`tool_call`, `tool_calls`)이 문서/스크립트에 일관되게 사용되는지 `rg`로 점검.
 
 ### 2단계: Tool Call 생성 🛠️
@@ -208,9 +208,9 @@ python generate_widget_tool_calls.py \
   - `mobile_widget_tool_calls.csv` (2단계)
 - 시나리오 1개당 여러 개의 구체 JSON variant 생성 (`--variants-per-scenario`, 기본 3)
 - 내장된 10개 JSON 예시 풀에서 시나리오마다 무작위 일부를 선택해 프롬프트에 삽입 (`--max-examples`로 개수 조절)
-- 각 JSON 객체에 `actions` 키를 강제 포함
-  - tool call이 있으면 함수명만 추출해 `actions`에 반영
-  - 필요 없으면 `actions: []`
+- 각 JSON 객체에 `tool_calls` 키를 강제 포함
+  - tool call이 있으면 함수명만 추출해 `tool_calls`에 반영
+  - 필요 없으면 `tool_calls: []`
 - 같은 시나리오에서도 다양한 도메인 변형(예: 쇼핑에서 커피/의류/전자제품 등)을 유도
 - CSV 저장 컬럼 (단일 파일 누적):
   - `created_at`
@@ -237,12 +237,12 @@ python generate_widget_tool_calls.py \
 - 랜덤(`--difficulty-strategy random`): `--difficulty-seed` 기반으로 무작위 배치
 - 고정(`--difficulty-strategy fixed`): `--difficulty-fixed-level` 하나로 통일
 
-- `actions` 복잡도 (가중치 큼): 고유 tool call 개수가 많을수록 난이도 증가
-- 필드 복잡도: `actions` 제외 top-level 필드 수가 많을수록 증가
+- `tool_calls` 복잡도 (가중치 큼): 고유 tool call 개수가 많을수록 난이도 증가
+- 필드 복잡도: `tool_calls` 제외 top-level 필드 수가 많을수록 증가
 - 구조 복잡도: 중첩 depth, 객체/배열 노드 수, 배열 원소 수가 많을수록 증가
 - payload 복잡도: 문자열 총 길이가 길수록 증가
 - 시나리오 복잡도: 시나리오 토큰 수가 많을수록 증가
-- action 모호성 보정: raw tool call 대비 함수명 추출이 많이 줄어들면 소폭 가산
+- tool call 모호성 보정: raw tool call 대비 함수명 추출이 많이 줄어들면 소폭 가산
 
 최종 score(0~100)를 기준으로 다음 레벨을 붙입니다.
 - `low`: 0~33
@@ -311,7 +311,7 @@ python generate_widget_example_json.py \
   - `example_json`
   - `tsx_code`
   - `format_ok`
-  - `uses_declared_actions`
+  - `uses_declared_tool_calls`
   - `rlvr_reward_spec`
 
 #### 실행 방법

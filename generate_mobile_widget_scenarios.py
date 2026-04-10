@@ -168,6 +168,12 @@ def main() -> None:
     parser.add_argument("--max-examples", type=int, default=5)
     parser.add_argument("--max-disallow", type=int, default=5)
     args = parser.parse_args()
+    if args.scenarios_per_response <= 0:
+        parser.error("--scenarios-per-response must be a positive integer")
+    if args.responses_per_category <= 0:
+        parser.error("--responses-per-category must be a positive integer")
+    if args.target_per_category is not None and args.target_per_category <= 0:
+        parser.error("--target-per-category must be a positive integer when provided")
 
     csv_path = Path(args.csv_path)
     examples = unique_preserve_order(RAW_EXAMPLES)[: args.max_examples]

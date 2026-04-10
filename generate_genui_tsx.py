@@ -167,10 +167,29 @@ def build_rlvr_reward_spec() -> str:
     return json.dumps(spec, ensure_ascii=False)
 
 
+class UnsupportedNError(RuntimeError):
+    """Raised when server does not support n>1 in chat.completions.create."""
+
+
+def is_n_unsupported_error(error: Exception) -> bool:
+    text = str(error).lower()
+    patterns = [
+        "does not support n",
+        "unsupported value: 'n'",
+        "unsupported parameter",
+        "unexpected keyword argument 'n'",
+        "n must be 1",
+        "n is not supported",
+        "only support n=1",
+    ]
+    return any(p in text for p in patterns)
+
+
 def create_completion_with_retry(
     client: OpenAI,
     *,
     model: str,
+    n: int,
     temperature: float,
     messages: list[dict[str, str]],
     max_retries: int = 3,
@@ -181,11 +200,13 @@ def create_completion_with_retry(
         try:
             return client.chat.completions.create(
                 model=model,
-                n=1,
+                n=n,
                 temperature=temperature,
                 messages=messages,
             )
-        except Exception:
+        except Exception as e:
+            if n > 1 and is_n_unsupported_error(e):
+                raise UnsupportedNError(str(e)) from e
             attempt += 1
             if attempt > max_retries:
                 raise
@@ -238,45 +259,84 @@ def main() -> None:
             actions=actions,
         )
 
-        for sample_index in range(1, args.samples_per_input + 1):
-            tasks.append(
-                {
-                    "row_index": row_index,
-                    "sample_index": sample_index,
-                    "row": row,
-                    "actions": actions,
-                    "prompt": prompt,
-                }
-            )
+        tasks.append(
+            {
+                "row_index": row_index,
+                "row": row,
+                "actions": actions,
+                "prompt": prompt,
+                "samples_per_input": args.samples_per_input,
+            }
+        )
 
     total_calls = len(tasks)
 
-    def process_task(task: dict[str, object]) -> dict[str, object]:
-        completion = create_completion_with_retry(
-            client,
-            model=args.model,
-            temperature=args.temperature,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You output raw TSX only for training datasets.",
-                },
-                {"role": "user", "content": str(task["prompt"])},
-            ],
-        )
-        output_text = completion.choices[0].message.content or ""
-        tsx_code = strip_code_fences(output_text)
+    def process_task(task: dict[str, object]) -> list[dict[str, object]]:
+        messages = [
+            {
+                "role": "system",
+                "content": "You output raw TSX only for training datasets.",
+            },
+            {"role": "user", "content": str(task["prompt"])},
+        ]
+        row_index = int(task["row_index"])
+        samples_per_input = int(task["samples_per_input"])
+        outputs: list[str] = []
+
+        if samples_per_input > 1:
+            try:
+                completion = create_completion_with_retry(
+                    client,
+                    model=args.model,
+                    n=samples_per_input,
+                    temperature=args.temperature,
+                    messages=messages,
+                )
+                for choice in completion.choices:
+                    outputs.append(strip_code_fences(choice.message.content or ""))
+            except UnsupportedNError as e:
+                print(
+                    f"[INFO] row={row_index}/{len(json_rows)} n={samples_per_input} unsupported, "
+                    f"fallback to n=1 repeated calls: {e}"
+                )
+                for _ in range(samples_per_input):
+                    completion = create_completion_with_retry(
+                        client,
+                        model=args.model,
+                        n=1,
+                        temperature=args.temperature,
+                        messages=messages,
+                    )
+                    outputs.append(strip_code_fences(completion.choices[0].message.content or ""))
+        else:
+            completion = create_completion_with_retry(
+                client,
+                model=args.model,
+                n=1,
+                temperature=args.temperature,
+                messages=messages,
+            )
+            outputs.append(strip_code_fences(completion.choices[0].message.content or ""))
+
+        if len(outputs) < samples_per_input:
+            outputs.extend([""] * (samples_per_input - len(outputs)))
+
         actions = task["actions"]
-        return {
-            "row_index": task["row_index"],
-            "sample_index": task["sample_index"],
-            "row": task["row"],
-            "actions": actions,
-            "prompt": task["prompt"],
-            "tsx_code": tsx_code,
-            "format_ok": looks_like_tsx(tsx_code),
-            "actions_ok": check_actions_used(tsx_code, actions),
-        }
+        results: list[dict[str, object]] = []
+        for choice_idx, tsx_code in enumerate(outputs[:samples_per_input], start=1):
+            results.append(
+                {
+                    "row_index": row_index,
+                    "sample_index": choice_idx,
+                    "row": task["row"],
+                    "actions": actions,
+                    "prompt": task["prompt"],
+                    "tsx_code": tsx_code,
+                    "format_ok": looks_like_tsx(tsx_code),
+                    "actions_ok": check_actions_used(tsx_code, actions),
+                }
+            )
+        return results
 
     done = 0
     completed_results: list[dict[str, object]] = []
@@ -286,15 +346,16 @@ def main() -> None:
             done += 1
             task = future_to_task[future]
             try:
-                completed_results.append(future.result())
-                print(
-                    f"[DONE] {done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
-                    f"sample={task['sample_index']}/{args.samples_per_input}"
-                )
+                results = future.result()
+                completed_results.extend(results)
+                for result in results:
+                    print(
+                        f"[DONE] request={done}/{total_calls} row={result['row_index']}/{len(json_rows)} "
+                        f"choice={result['sample_index']}/{args.samples_per_input}"
+                    )
             except Exception as e:
                 print(
-                    f"[WARN] {done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
-                    f"sample={task['sample_index']}/{args.samples_per_input} "
+                    f"[WARN] request={done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
                     f"request failed after retries: {e}"
                 )
 

@@ -16,6 +16,49 @@ flowchart LR
     A --> B --> C --> D
 ```
 
+### 예상 생성량 계산
+
+기본값 기준으로, 각 단계의 예상 생성 건수는 아래처럼 계산할 수 있습니다.
+
+| 파라미터 | 의미 | 기본값 |
+|---|---|---:|
+| `categories` | 생성 대상 카테고리 수 | 7 |
+| `target_per_category` | 카테고리당 1단계 목표 시나리오 수 | 5 |
+| `max_items_per_scenario` | 시나리오당 2단계 tool call 최대 개수 | 3 |
+| `variants_per_scenario` | 시나리오당 3단계 JSON variant 개수 | 3 |
+| `samples_per_input` | 3단계 입력 1건당 4단계 샘플 수 | 3 |
+
+#### 단계별 계산 (기본값)
+
+- **1단계**: `7 × 5 = 35`
+- **2단계**: `35 × 3 = 105`
+- **3단계**: `35 × 3 = 105`  
+  (※ 3단계는 **tool call 수가 아니라 시나리오 수(1단계 결과)**를 기준으로 variant를 만듭니다.)
+- **4단계**: `105 × 3 = 315`
+
+#### 일반식 (S1~S4)
+
+- `S1 = categories × target_per_category`
+- `S2 = S1 × max_items_per_scenario`
+- `S3 = S1 × variants_per_scenario`
+- `S4 = S3 × samples_per_input`
+
+CLI 옵션을 바꿨을 때는 위 식에 값만 대입하면 즉시 재계산할 수 있습니다.
+
+#### 관계 다이어그램 (1→2, 1→3, 3→4)
+
+```mermaid
+flowchart LR
+    S1["S1: 1단계 시나리오 수\n= categories × target_per_category"]
+    S2["S2: 2단계 tool call 수\n= S1 × max_items_per_scenario"]
+    S3["S3: 3단계 JSON variant 수\n= S1 × variants_per_scenario\n(시나리오 기준)"]
+    S4["S4: 4단계 GenUI 샘플 수\n= S3 × samples_per_input"]
+
+    S1 --> S2
+    S1 --> S3
+    S3 --> S4
+```
+
 ### 단계별 입력/출력 요약
 
 | 단계 | 스크립트 | 입력 | 출력 |

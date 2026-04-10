@@ -179,15 +179,6 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
 
 ---
 
-## 스키마 체크리스트 (tool_call) ✅
-
-- [ ] 2단계 출력 CSV 헤더가 `tool_call`인지 확인 .
-- [ ] 2단계 산출물이 `tool_call` 헤더를 사용하는지 확인.
-- [ ] 3단계 출력 CSV 헤더가 `tool_calls`인지 확인 .
-- [ ] 샘플 데이터/테스트 fixture에서 `tool_call`/`tool_calls` 표준 헤더 사용 여부를 점검.
-- [ ] 후속 소비 스크립트 `generate_genui_tsx.py`는 `example_json` 내부의 `tool_calls`만 사용하므로 3단계 컬럼명 변경 영향이 없는지 smoke test로 확인.
-- [ ] 용어 표준(`tool_call`, `tool_calls`)이 문서/스크립트에 일관되게 사용되는지 `rg`로 점검.
-
 ### 2단계: Tool Call 생성 🛠️
 
 <details>

@@ -21,6 +21,8 @@ from typing import Iterable
 
 from openai import OpenAI
 
+from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
+
 DEFAULT_CATEGORIES = [
     "쇼핑",
     "음악",
@@ -75,9 +77,7 @@ CSV_FIELDS = ["created_at", "model", "prompt", "category", "scenario"]
 
 
 def normalize_text(text: str) -> str:
-    text = text.strip().lower()
-    text = re.sub(r"^[\-\d\.)\s]+", "", text)
-    return re.sub(r"\s+", " ", text)
+    return common_normalize_text(text, strip_prefix=True)
 
 
 def unique_preserve_order(items: Iterable[str]) -> list[str]:
@@ -141,8 +141,7 @@ Disallowed existing scenarios (do not reuse):
 
 
 def sanitize_scenario(text: str) -> str:
-    cleaned = re.sub(r"^[\-\d\.)\s]+", "", text.strip())
-    return re.sub(r"\s+", " ", cleaned)
+    return normalize_spaces(strip_list_prefix(text.strip()))
 
 
 def extract_scenarios(text: str) -> list[str]:

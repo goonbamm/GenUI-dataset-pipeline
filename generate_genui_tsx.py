@@ -53,7 +53,7 @@ TSX_FIELDS = [
     "example_json",
     "tsx_code",
     "format_ok",
-    "uses_declared_actions",
+    "uses_declared_tool_calls",
     "rlvr_reward_spec",
 ]
 
@@ -89,19 +89,19 @@ def parse_json_obj(raw: str) -> dict[str, object]:
     return data
 
 
-def parse_actions(example_obj: dict[str, object]) -> list[str]:
-    actions = example_obj.get("actions", [])
-    if not isinstance(actions, list):
+def parse_tool_calls(example_obj: dict[str, object]) -> list[str]:
+    tool_calls = example_obj.get("tool_calls", [])
+    if not isinstance(tool_calls, list):
         return []
     cleaned: list[str] = []
-    for a in actions:
-        if isinstance(a, str) and a.strip():
-            cleaned.append(a.strip())
+    for call in tool_calls:
+        if isinstance(call, str) and call.strip():
+            cleaned.append(call.strip())
     return cleaned
 
 
-def build_prompt(category: str, scenario: str, example_json: dict[str, object], actions: list[str]) -> str:
-    action_text = ", ".join(actions) if actions else "(none)"
+def build_prompt(category: str, scenario: str, example_json: dict[str, object], tool_calls: list[str]) -> str:
+    tool_call_text = ", ".join(tool_calls) if tool_calls else "(none)"
     json_text = json.dumps(example_json, ensure_ascii=False, indent=2)
 
     return f"""You are generating a Stage-4 GenUI TSX training target.
@@ -111,7 +111,7 @@ Scenario: {scenario}
 Input JSON:
 {json_text}
 
-Allowed actions: {action_text}
+Declared tool calls: {tool_call_text}
 
 Requirements:
 1) Return ONLY TSX code (no markdown fences, no explanation).
@@ -119,7 +119,7 @@ Requirements:
 3) Keep UI minimal and simple. Do not import or use external UI components.
 4) Use plain semantic HTML tags (div, section, h1~h3, p, ul/li, button, etc.).
 5) Render the key fields from Input JSON so the user can understand current state.
-6) If actions exist, render action buttons in the same order. Use readable labels.
+6) If tool calls exist, render tool-call buttons in the same order. Use readable labels.
 7) Avoid network calls and side effects; this is a static training target.
 8) Keep code concise and deterministic.
 """
@@ -137,14 +137,14 @@ def looks_like_tsx(text: str) -> bool:
     return "export default" in text and "return (" in text and "<" in text and ">" in text
 
 
-def check_actions_used(tsx: str, actions: list[str]) -> bool:
-    if not actions:
+def check_tool_calls_used(tsx: str, tool_calls: list[str]) -> bool:
+    if not tool_calls:
         return True
 
     lower = tsx.lower()
-    for action in actions:
-        label = action.replace("_", " ").lower()
-        if label not in lower and action.lower() not in lower:
+    for tool_call in tool_calls:
+        label = tool_call.replace("_", " ").lower()
+        if label not in lower and tool_call.lower() not in lower:
             return False
     return True
 
@@ -155,13 +155,13 @@ def build_rlvr_reward_spec() -> str:
             {"name": "valid_tsx_shape", "rule": "contains export default + JSX return"},
             {"name": "no_markdown_fence", "rule": "must not contain triple backticks"},
             {"name": "minimal_html_only", "rule": "no external UI component imports"},
-            {"name": "actions_covered", "rule": "declared actions should appear as labels/text"},
+            {"name": "tool_calls_covered", "rule": "declared tool calls should appear as labels/text"},
         ],
         "weights": {
             "valid_tsx_shape": 0.35,
             "no_markdown_fence": 0.15,
             "minimal_html_only": 0.2,
-            "actions_covered": 0.3,
+            "tool_calls_covered": 0.3,
         },
     }
     return json.dumps(spec, ensure_ascii=False)
@@ -251,19 +251,19 @@ def main() -> None:
             print(f"[WARN] row {row_index}/{len(json_rows)} parse example_json failed: {e}")
             continue
 
-        actions = parse_actions(json_obj)
+        tool_calls = parse_tool_calls(json_obj)
         prompt = build_prompt(
             category=row["category"],
             scenario=row["scenario"],
             example_json=json_obj,
-            actions=actions,
+            tool_calls=tool_calls,
         )
 
         tasks.append(
             {
                 "row_index": row_index,
                 "row": row,
-                "actions": actions,
+                "tool_calls": tool_calls,
                 "prompt": prompt,
                 "samples_per_input": args.samples_per_input,
             }
@@ -321,7 +321,7 @@ def main() -> None:
         if len(outputs) < samples_per_input:
             outputs.extend([""] * (samples_per_input - len(outputs)))
 
-        actions = task["actions"]
+        tool_calls = task["tool_calls"]
         results: list[dict[str, object]] = []
         for choice_idx, tsx_code in enumerate(outputs[:samples_per_input], start=1):
             results.append(
@@ -329,11 +329,11 @@ def main() -> None:
                     "row_index": row_index,
                     "sample_index": choice_idx,
                     "row": task["row"],
-                    "actions": actions,
+                    "tool_calls": tool_calls,
                     "prompt": task["prompt"],
                     "tsx_code": tsx_code,
                     "format_ok": looks_like_tsx(tsx_code),
-                    "actions_ok": check_actions_used(tsx_code, actions),
+                    "tool_calls_ok": check_tool_calls_used(tsx_code, tool_calls),
                 }
             )
         return results
@@ -383,7 +383,7 @@ def main() -> None:
                 "example_json": row["example_json"],
                 "tsx_code": result["tsx_code"],
                 "format_ok": "1" if result["format_ok"] else "0",
-                "uses_declared_actions": "1" if result["actions_ok"] else "0",
+                "uses_declared_tool_calls": "1" if result["tool_calls_ok"] else "0",
                 "rlvr_reward_spec": rlvr_reward_spec,
             }
         )

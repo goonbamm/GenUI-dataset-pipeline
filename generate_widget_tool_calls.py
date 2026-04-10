@@ -15,6 +15,7 @@ import concurrent.futures
 import csv
 import datetime as dt
 import os
+import re
 import time
 from pathlib import Path
 
@@ -109,22 +110,72 @@ def sanitize_tool_call(text: str) -> str:
     return normalize_spaces(strip_list_prefix(text.strip()))
 
 
+def normalize_tool_call_format(text: str) -> str:
+    normalized = sanitize_tool_call(text)
+    if not normalized:
+        return normalized
+
+    # minor auto-fixes: excessive spaces and duplicated separator hyphens
+    normalized = re.sub(r"\s*\(\s*", "(", normalized, count=1)
+    normalized = re.sub(r"\s*\)\s*", ")", normalized, count=1)
+    normalized = re.sub(r"\)\s*--+\s*", ") - ", normalized, count=1)
+    normalized = re.sub(r"\)\s*-\s*-\s*", ") - ", normalized, count=1)
+    normalized = re.sub(r"\s*-\s*", " - ", normalized, count=1)
+    return normalize_spaces(normalized)
+
+
+def validate_tool_call_format(text: str) -> bool:
+    if not text:
+        return False
+
+    # function_name(params) - description
+    match = re.fullmatch(r"([a-z]+(?:_[a-z0-9]+)*)\((.*)\)\s*-\s*(.+)", text)
+    if not match:
+        return False
+
+    params = (match.group(2) or "").strip()
+    description = (match.group(3) or "").strip()
+    if not params or not description:
+        return False
+
+    # reject unbalanced parentheses in parameter section
+    depth = 0
+    for ch in params:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+    if depth != 0:
+        return False
+
+    return True
+
+
 def extract_tool_calls(text: str) -> list[str]:
     if not text:
         return []
 
     results: list[str] = []
     seen: set[str] = set()
+    dropped_count = 0
 
     for raw in text.strip().splitlines():
-        item = sanitize_tool_call(raw)
+        item = normalize_tool_call_format(raw)
         if not item:
+            continue
+        if not validate_tool_call_format(item):
+            dropped_count += 1
             continue
         key = normalize_text(item)
         if key in seen:
             continue
         seen.add(key)
         results.append(item)
+
+    if dropped_count:
+        print(f"[WARN] Dropped {dropped_count} invalid tool call(s) due to format validation.")
 
     return results
 

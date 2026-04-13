@@ -674,7 +674,11 @@ def main() -> None:
                     "category": row["category"],
                     "scenario": row["scenario"],
                     "prompt": prompt,
-                    "tool_calls": json.dumps(tool_calls, ensure_ascii=False),
+                    # Stage3 CSV contract: persist structured tool-call objects.
+                    # `tool_calls` is a JSON-serialized array whose elements are
+                    # normalized objects (name + optional params/data), aligned
+                    # with `example_json.tool_calls`.
+                    "tool_calls": json.dumps(parsed_tool_calls, ensure_ascii=False),
                     "variant_index": str(variant_index),
                     "difficulty_target": target_level,
                     "difficulty": difficulty,

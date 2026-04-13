@@ -485,6 +485,7 @@ def main() -> None:
     )
     parser.add_argument("--limit-scenarios", type=int, default=0)
     parser.add_argument("--max-concurrency", type=int, default=6)
+    parser.add_argument("--flush-every", type=int, default=1)
     parser.add_argument(
         "--tool-call-overlap-filter",
         action=argparse.BooleanOptionalAction,
@@ -502,6 +503,8 @@ def main() -> None:
         raise ValueError("--max-examples must be >= 0")
     if args.max_concurrency < 1:
         raise ValueError("--max-concurrency must be >= 1")
+    if args.flush_every < 1:
+        raise ValueError("--flush-every must be >= 1")
 
     scenario_rows = load_scenarios(Path(args.scenario_csv))
     if args.limit_scenarios > 0:
@@ -575,33 +578,21 @@ def main() -> None:
             "variants": variants[: args.variants_per_scenario],
         }
 
-    rows_to_append: list[dict[str, str]] = []
     total = len(scenario_rows)
     done = 0
     dropped_no_overlap = 0
-    ordered_results: list[dict[str, object]] = []
+    out_path = Path(args.json_csv)
+    file_exists = out_path.exists()
+    write_mode = "a" if file_exists else "w"
+    write_encoding = "utf-8" if file_exists else "utf-8-sig"
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
-        future_to_row = {
-            executor.submit(process_row, row_index, row): (row_index, row)
-            for row_index, row in enumerate(scenario_rows, start=1)
-        }
+    written_rows = 0
+    pending_since_flush = 0
+    buffered_results: dict[tuple[int, int], dict[str, object]] = {}
+    next_expected = (1, 1)
 
-        for future in concurrent.futures.as_completed(future_to_row):
-            done += 1
-            row_index, row = future_to_row[future]
-            try:
-                ordered_results.append(future.result())
-                print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
-            except Exception as e:
-                print(
-                    f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
-                    f"request failed after retries or parse failed: {e}"
-                )
-
-    ordered_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
-
-    for result in ordered_results:
+    def flush_result(result: dict[str, object], writer: csv.DictWriter, output_file) -> int:
+        nonlocal dropped_no_overlap, pending_since_flush
         row_index = int(result["row_index"])
         sample_index = int(result["sample_index"])
         row = result["row"]
@@ -610,6 +601,8 @@ def main() -> None:
         tool_call_names = result["tool_call_names"]
         difficulty_targets = result["difficulty_targets"]
         variants = result["variants"]
+        local_written = 0
+
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         for variant_index, obj in enumerate(variants, start=1):
             ensured = ensure_tool_calls(obj, tool_call_names)
@@ -625,7 +618,7 @@ def main() -> None:
                 tool_call_names=tool_call_names,
                 json_obj=ensured,
             )
-            rows_to_append.append(
+            writer.writerow(
                 {
                     "created_at": now,
                     "model": args.model,
@@ -643,22 +636,50 @@ def main() -> None:
                     "example_json": json.dumps(ensured, ensure_ascii=False),
                 }
             )
+            local_written += 1
+            pending_since_flush += 1
+            if pending_since_flush >= args.flush_every:
+                output_file.flush()
+                pending_since_flush = 0
+        return local_written
 
-    if not rows_to_append:
-        print("No example JSON rows generated.")
-        return
-
-    out_path = Path(args.json_csv)
-    file_exists = out_path.exists()
-    write_mode = "a" if file_exists else "w"
-    write_encoding = "utf-8" if file_exists else "utf-8-sig"
     with out_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=EXAMPLE_JSON_FIELDS)
         if not file_exists:
             writer.writeheader()
-        writer.writerows(rows_to_append)
+            f.flush()
 
-    print(f"Saved {len(rows_to_append)} rows to {out_path}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
+            future_to_row = {
+                executor.submit(process_row, row_index, row): (row_index, row)
+                for row_index, row in enumerate(scenario_rows, start=1)
+            }
+
+            for future in concurrent.futures.as_completed(future_to_row):
+                done += 1
+                row_index, row = future_to_row[future]
+                try:
+                    result = future.result()
+                    buffered_results[(int(result["row_index"]), int(result["sample_index"]))] = result
+                    while next_expected in buffered_results:
+                        ordered_result = buffered_results.pop(next_expected)
+                        written_rows += flush_result(ordered_result, writer, f)
+                        next_expected = (next_expected[0] + 1, 1)
+                    print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
+                except Exception as e:
+                    print(
+                        f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
+                        f"request failed after retries or parse failed: {e}"
+                    )
+
+        if pending_since_flush:
+            f.flush()
+
+    if not written_rows:
+        print("No example JSON rows generated.")
+        return
+
+    print(f"Saved {written_rows} rows to {out_path}")
     if args.tool_call_overlap_filter:
         print(f"Dropped {dropped_no_overlap} rows by tool-call overlap filter")
 

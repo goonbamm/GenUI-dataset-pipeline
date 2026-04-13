@@ -55,19 +55,56 @@ def parse_json_obj(raw: str) -> dict[str, object]:
     return data
 
 
-def parse_tool_calls(example_obj: dict[str, object]) -> list[str]:
+def parse_tool_calls(example_obj: dict[str, object]) -> list[dict[str, object]]:
     tool_calls = example_obj.get("tool_calls", [])
     if not isinstance(tool_calls, list):
         return []
-    cleaned: list[str] = []
+    cleaned: list[dict[str, object]] = []
     for call in tool_calls:
         if isinstance(call, str) and call.strip():
-            cleaned.append(call.strip())
+            cleaned.append(
+                {
+                    "name": call.strip(),
+                    "params": {},
+                    "data": {},
+                }
+            )
+            continue
+
+        if not isinstance(call, dict):
+            continue
+
+        name_raw = call.get("name") or call.get("tool") or call.get("tool_name")
+        if not isinstance(name_raw, str) or not name_raw.strip():
+            continue
+
+        params = call.get("params")
+        data = call.get("data")
+        cleaned.append(
+            {
+                "name": name_raw.strip(),
+                "params": params if isinstance(params, dict) else {},
+                "data": data if isinstance(data, dict) else {},
+            }
+        )
     return cleaned
 
 
-def build_prompt(category: str, scenario: str, example_json: dict[str, object], tool_calls: list[str]) -> str:
-    tool_call_text = ", ".join(tool_calls) if tool_calls else "(none)"
+def build_prompt(
+    category: str,
+    scenario: str,
+    example_json: dict[str, object],
+    tool_calls: list[dict[str, object]],
+) -> str:
+    if tool_calls:
+        tool_call_text = ", ".join(
+            [
+                f"{call['name']} (params={json.dumps(call['params'], ensure_ascii=False)}, data={json.dumps(call['data'], ensure_ascii=False)})"
+                for call in tool_calls
+            ]
+        )
+    else:
+        tool_call_text = "(none)"
     json_text = json.dumps(example_json, ensure_ascii=False, indent=2)
 
     return f"""You are generating a Stage-4 GenUI TSX training target.
@@ -85,9 +122,10 @@ Requirements:
 3) Keep UI minimal and simple. Do not import or use external UI components.
 4) Use plain semantic HTML tags (div, section, h1~h3, p, ul/li, button, etc.).
 5) Render the key fields from Input JSON so the user can understand current state.
-6) If tool calls exist, render tool-call buttons in the same order. Use readable labels.
-7) Avoid network calls and side effects; this is a static training target.
-8) Keep code concise and deterministic.
+6) If tool calls exist, render tool-call buttons/UI in the same order. Use readable labels.
+7) Never infer or fabricate tool parameters. Render `params` and `data` from Input JSON as-is.
+8) Avoid network calls and side effects; this is a static training target.
+9) Keep code concise and deterministic.
 """
 
 
@@ -103,14 +141,26 @@ def looks_like_tsx(text: str) -> bool:
     return "export default" in text and "return (" in text and "<" in text and ">" in text
 
 
-def check_tool_calls_used(tsx: str, tool_calls: list[str]) -> bool:
+def check_tool_calls_used(tsx: str, tool_calls: list[dict[str, object]]) -> bool:
     if not tool_calls:
         return True
 
     lower = tsx.lower()
     for tool_call in tool_calls:
-        label = tool_call.replace("_", " ").lower()
-        if label not in lower and tool_call.lower() not in lower:
+        name = str(tool_call.get("name", ""))
+        label = name.replace("_", " ").lower()
+        if label not in lower and name.lower() not in lower:
+            return False
+
+        params = tool_call.get("params", {})
+        data = tool_call.get("data", {})
+        key_tokens: list[str] = []
+        if isinstance(params, dict):
+            key_tokens.extend([str(k).lower() for k in params.keys() if str(k).strip()])
+        if isinstance(data, dict):
+            key_tokens.extend([str(k).lower() for k in data.keys() if str(k).strip()])
+
+        if key_tokens and not any(token in lower for token in key_tokens):
             return False
     return True
 
@@ -185,7 +235,7 @@ def main() -> None:
     class TsxTask:
         row_index: int
         json_row: dict[str, str]
-        tool_calls: list[str]
+        tool_calls: list[dict[str, object]]
         prompt: str
         samples_per_input: int
 

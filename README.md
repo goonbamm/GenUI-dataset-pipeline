@@ -177,8 +177,6 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
 
 </details>
 
----
-
 ### 2단계: Tool Call 생성 🛠️
 
 <details>

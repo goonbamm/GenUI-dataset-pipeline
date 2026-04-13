@@ -11,13 +11,13 @@ Stage 2 helper script:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import csv
 import re
 from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
+from common.stage_executor import FlushWriter, run_ordered_stage
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
 TOOL_CALL_FIELDS = [
@@ -272,7 +272,14 @@ def main() -> None:
 
     client = create_openai_client(args)
 
-    def process_row(row_index: int, row: dict[str, str]) -> dict[str, object]:
+    tasks: list[dict[str, object]] = [
+        {"row_index": row_index, "sample_index": 1, "row": row}
+        for row_index, row in enumerate(scenario_rows, start=1)
+    ]
+
+    def process_row(task: dict[str, object]) -> dict[str, object]:
+        row_index = int(task["row_index"])
+        row = task["row"]
         prompt = build_prompt(
             category=row["category"],
             scenario=row["scenario"],
@@ -301,28 +308,18 @@ def main() -> None:
         items = extract_tool_calls(output_text)[: args.max_items_per_scenario]
         return {
             "row_index": row_index,
-            "sample_index": 1,
+            "sample_index": int(task["sample_index"]),
             "row": row,
             "prompt": prompt,
             "items": items,
         }
 
-    total = len(scenario_rows)
-    done = 0
     tool_call_csv_path = Path(args.tool_call_csv)
     file_exists = tool_call_csv_path.exists()
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
 
-    written_rows = 0
-    buffered_results: dict[tuple[int, int], dict[str, object]] = {}
-    failed_results: set[tuple[int, int]] = set()
-    next_expected = (1, 1)
-
-    pending_since_flush = 0
-
-    def flush_result(result: dict[str, object], writer: csv.DictWriter, output_file) -> int:
-        nonlocal pending_since_flush
+    def flush_result(result: dict[str, object], flush_writer: FlushWriter) -> int:
         row_index = int(result["row_index"])
         sample_index = int(result["sample_index"])
         row = result["row"]
@@ -332,7 +329,7 @@ def main() -> None:
 
         now = utc_now_iso()
         for item in items:
-            writer.writerow(
+            flush_writer.writerow(
                 {
                     "created_at": now,
                     "model": args.model,
@@ -347,11 +344,20 @@ def main() -> None:
                 }
             )
             local_written += 1
-            pending_since_flush += 1
-            if pending_since_flush >= args.flush_every:
-                output_file.flush()
-                pending_since_flush = 0
         return local_written
+
+    def done_log(done: int, total_tasks: int, task: dict[str, object], _: dict[str, object]) -> str:
+        row_index = int(task["row_index"])
+        row = task["row"]
+        return f"[DONE] {done}/{total_tasks} row={row_index} {row['category']} | {row['scenario']}"
+
+    def warn_log(done: int, total_tasks: int, task: dict[str, object], exc: Exception) -> str:
+        row_index = int(task["row_index"])
+        row = task["row"]
+        return (
+            f"[WARN] {done}/{total_tasks} row={row_index} {row['category']} | {row['scenario']} "
+            f"request failed after retries: {exc}"
+        )
 
     with tool_call_csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=TOOL_CALL_FIELDS)
@@ -359,45 +365,24 @@ def main() -> None:
             writer.writeheader()
             f.flush()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
-            future_to_row = {
-                executor.submit(process_row, row_index, row): (row_index, row)
-                for row_index, row in enumerate(scenario_rows, start=1)
-            }
+        summary = run_ordered_stage(
+            tasks=tasks,
+            process_task=process_row,
+            task_key=lambda task: (int(task["row_index"]), int(task["sample_index"])),
+            result_key=lambda result: (int(result["row_index"]), int(result["sample_index"])),
+            flush_result=flush_result,
+            max_concurrency=args.max_concurrency,
+            writer=writer,
+            output_file=f,
+            flush_every=args.flush_every,
+            done_log=done_log,
+            warn_log=warn_log,
+        )
 
-            for future in concurrent.futures.as_completed(future_to_row):
-                done += 1
-                row_index, row = future_to_row[future]
-                try:
-                    result = future.result()
-                    buffered_results[(int(result["row_index"]), int(result["sample_index"]))] = result
-                    print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
-                except Exception as e:
-                    failed_results.add((int(row_index), 1))
-                    print(
-                        f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
-                        f"request failed after retries: {e}"
-                    )
-
-                while True:
-                    if next_expected in failed_results:
-                        failed_results.remove(next_expected)
-                        next_expected = (next_expected[0] + 1, 1)
-                        continue
-                    if next_expected in buffered_results:
-                        ordered_result = buffered_results.pop(next_expected)
-                        written_rows += flush_result(ordered_result, writer, f)
-                        next_expected = (next_expected[0] + 1, 1)
-                        continue
-                    break
-
-        if pending_since_flush:
-            f.flush()
-
-    if not written_rows:
+    if not summary.written_rows:
         print("No tool calls generated.")
         return
-    print(f"Saved {written_rows} rows to {tool_call_csv_path}")
+    print(f"Saved {summary.written_rows} rows to {tool_call_csv_path}")
 
 
 if __name__ == "__main__":

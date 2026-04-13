@@ -71,6 +71,7 @@ flowchart LR
 > 용어 표준: `tool_call`(단수) / `tool_calls`(복수)를 표준 용어로 사용합니다.
 >
 > 조인 키 표준: stage2~stage3 매칭은 `SCENARIO_JOIN_KEY_FIELDS` (`scenario_created_at`, `scenario_model`, `category`, `scenario`)를 사용합니다.
+> - Stage1 CSV를 참조 스키마로 올릴 때는 `created_at -> scenario_created_at`, `model -> scenario_model`, `category -> category`, `scenario -> scenario`로 매핑합니다 (`common/schemas.py`의 `build_scenario_reference_from_stage1_row`).
 >
 > 스키마 변경 원칙: 컬럼/필수 컬럼/조인 키를 바꿀 때는 `common/schemas.py` 1곳을 먼저 수정하세요.
 

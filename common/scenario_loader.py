@@ -8,7 +8,7 @@ from pathlib import Path
 from common.schemas import (
     STAGE1_REQUIRED_FIELDS,
     ScenarioReferenceRow,
-    build_scenario_join_key,
+    build_scenario_reference_from_stage1_row,
     ensure_required_columns,
 )
 
@@ -30,20 +30,13 @@ def load_stage1_scenarios(csv_path: Path, *, require_category: bool) -> list[Sce
         ensure_required_columns(reader.fieldnames, STAGE1_REQUIRED_FIELDS, label="Scenario CSV")
 
         for row in reader:
-            strict_key = build_scenario_join_key(row)
-            category = strict_key[2]
-            scenario = strict_key[3]
+            scenario_ref = build_scenario_reference_from_stage1_row(row)
+            category = scenario_ref["category"]
+            scenario = scenario_ref["scenario"]
             if not scenario:
                 continue
             if require_category and not category:
                 continue
-            rows.append(
-                {
-                    "scenario_created_at": strict_key[0],
-                    "scenario_model": strict_key[1],
-                    "category": category,
-                    "scenario": scenario,
-                }
-            )
+            rows.append(scenario_ref)
 
     return rows

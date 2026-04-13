@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate stage-3 concrete widget example JSON rows from scenarios + tool calls.
 
+Uses the Stage1 CSV canonical reader for scenario loading.
+
 Stage 3 helper script:
 - Reads stage1 scenario CSV and stage2 tool-call CSV
 - For each scenario, asks LLM for multiple concrete JSON examples
@@ -21,8 +23,8 @@ from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
+from common.scenario_loader import load_stage1_scenarios
 from common.schemas import (
-    STAGE1_REQUIRED_FIELDS,
     STAGE2_REQUIRED_FIELDS,
     STAGE3_FIELDS,
     ScenarioReferenceRow,
@@ -146,33 +148,6 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
 ]
 
 DIFFICULTY_LEVELS = ["low", "medium", "high"]
-
-
-def load_scenarios(csv_path: Path) -> list[ScenarioReferenceRow]:
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Scenario CSV not found: {csv_path}")
-
-    rows: list[ScenarioReferenceRow] = []
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        ensure_required_columns(reader.fieldnames, STAGE1_REQUIRED_FIELDS, label="Scenario CSV")
-
-        for row in reader:
-            strict_key = build_scenario_join_key(row)
-            scenario = strict_key[3]
-            category = strict_key[2]
-            if not scenario or not category:
-                continue
-            rows.append(
-                {
-                    "scenario_created_at": strict_key[0],
-                    "scenario_model": strict_key[1],
-                    "category": category,
-                    "scenario": scenario,
-                }
-            )
-
-    return rows
 
 
 def load_tool_calls(csv_path: Path) -> dict[tuple[str, str, str, str], list[str]]:
@@ -554,7 +529,7 @@ def main() -> None:
     if args.flush_every < 1:
         raise ValueError("--flush-every must be >= 1")
 
-    scenario_rows = load_scenarios(Path(args.scenario_csv))
+    scenario_rows = load_stage1_scenarios(Path(args.scenario_csv), require_category=True)
     if args.limit_scenarios > 0:
         scenario_rows = scenario_rows[: args.limit_scenarios]
 

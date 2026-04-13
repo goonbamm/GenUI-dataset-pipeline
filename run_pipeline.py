@@ -240,6 +240,11 @@ def main() -> None:
     ]
 
     selected = [s for s in stages if args.from_stage <= s.index <= args.to_stage]
+    success_count = 0
+    failed_count = 0
+    failed_stages: list[tuple[int, str, int]] = []
+    exit_code = 0
+
     for stage in selected:
         stage_args = stage_args_by_index[stage.index]
         cmd = stage.cmd + stage_args
@@ -251,15 +256,33 @@ def main() -> None:
 
         result = subprocess.run(cmd)
         if result.returncode == 0:
+            success_count += 1
             print(f"[PIPELINE] stage {stage.index} completed")
             continue
+
+        failed_count += 1
+        failed_stages.append((stage.index, stage.name, result.returncode))
+        if exit_code == 0:
+            exit_code = result.returncode
 
         print(
             f"[PIPELINE] stage {stage.index} failed with exit code {result.returncode}. "
             f"problematic args: {stage_args if stage_args else 'none'}"
         )
         if not args.continue_on_error:
-            raise SystemExit(result.returncode)
+            break
+
+    total_count = len(selected)
+    print(f"[PIPELINE] summary: succeeded={success_count} failed={failed_count} total={total_count}")
+    if failed_stages:
+        failures = " | ".join(f"({idx}, {name}, rc={rc})" for idx, name, rc in failed_stages)
+        print(f"[PIPELINE] failed stages: {failures}")
+        if args.continue_on_error:
+            print(
+                "[PIPELINE] continue-on-error=true: all selected stages were attempted, "
+                "but pipeline exits non-zero when any stage fails."
+            )
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

@@ -59,16 +59,20 @@ flowchart LR
     S3 --> S4
 ```
 
-### 단계별 입력/출력 요약
+### 단계별 입력/출력 요약 (공통 스키마 용어 기준)
 
 | 단계 | 스크립트 | 입력 | 출력 |
 |---|---|---|---|
-| 1 | `generate_mobile_widget_scenarios.py` | 카테고리 목록, 모델 | `mobile_widget_scenarios.csv` |
-| 2 | `generate_widget_tool_calls.py` | 1단계 CSV | `mobile_widget_tool_calls.csv` |
-| 3 | `generate_widget_example_json.py` | 1단계 + 2단계 CSV | `mobile_widget_example_json.csv` |
-| 4 | `generate_genui_tsx.py` | 3단계 CSV | `mobile_widget_genui_tsx.csv` |
+| 1 | `generate_mobile_widget_scenarios.py` | 카테고리 목록, 모델 | `mobile_widget_scenarios.csv` (`STAGE1_FIELDS`) |
+| 2 | `generate_widget_tool_calls.py` | 1단계 CSV (`STAGE1_REQUIRED_FIELDS`) | `mobile_widget_tool_calls.csv` (`STAGE2_FIELDS`) |
+| 3 | `generate_widget_example_json.py` | 1단계 CSV (`STAGE1_REQUIRED_FIELDS`) + 2단계 CSV (`STAGE2_REQUIRED_FIELDS`) | `mobile_widget_example_json.csv` (`STAGE3_FIELDS`) |
+| 4 | `generate_genui_tsx.py` | 3단계 CSV (`STAGE3_REQUIRED_FIELDS`) | `mobile_widget_genui_tsx.csv` (`STAGE4_FIELDS`) |
 
 > 용어 표준: `tool_call`(단수) / `tool_calls`(복수)를 표준 용어로 사용합니다.
+>
+> 조인 키 표준: stage2~stage3 매칭은 `SCENARIO_JOIN_KEY_FIELDS` (`scenario_created_at`, `scenario_model`, `category`, `scenario`)를 사용합니다.
+>
+> 스키마 변경 원칙: 컬럼/필수 컬럼/조인 키를 바꿀 때는 `common/schemas.py` 1곳을 먼저 수정하세요.
 
 ---
 

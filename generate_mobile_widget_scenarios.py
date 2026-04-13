@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
+from common.schemas import STAGE1_FIELDS, STAGE1_REQUIRED_FIELDS, ensure_required_columns
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
 DEFAULT_CATEGORIES = [
@@ -75,9 +76,6 @@ RAW_EXAMPLES = [
     "hotel booking confirmation",
 ]
 
-CSV_FIELDS = ["created_at", "model", "prompt", "category", "scenario"]
-
-
 def normalize_text(text: str) -> str:
     return common_normalize_text(text, strip_prefix=True)
 
@@ -103,6 +101,11 @@ def load_existing(csv_path: Path) -> tuple[dict[str, set[str]], set[str]]:
 
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
+        ensure_required_columns(
+            reader.fieldnames,
+            STAGE1_REQUIRED_FIELDS,
+            label="Scenario CSV",
+        )
         for row in reader:
             category = (row.get("category") or "").strip()
             scenario = (row.get("scenario") or "").strip()
@@ -289,7 +292,7 @@ def main() -> None:
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
     with csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=STAGE1_FIELDS)
         if not file_exists:
             writer.writeheader()
         writer.writerows(rows_to_append)

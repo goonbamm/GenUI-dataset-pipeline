@@ -252,7 +252,7 @@ def main() -> None:
         print(f"[PIPELINE] running stage {stage.index}: {stage.name}")
         if stage_args:
             source = "explicit+auto(target-total)" if auto_used_by_stage[stage.index] else "explicit"
-            print(f"[PIPELINE] stage {stage.index} args [{source}]: {stage_args}")
+            print(f"[PIPELINE] stage {stage.index} args [{source}]: {shlex.join(stage_args)}")
 
         result = subprocess.run(cmd)
         if result.returncode == 0:
@@ -267,7 +267,7 @@ def main() -> None:
 
         print(
             f"[PIPELINE] stage {stage.index} failed with exit code {result.returncode}. "
-            f"problematic args: {stage_args if stage_args else 'none'}"
+            f"problematic args: {shlex.join(stage_args) if stage_args else 'none'}"
         )
         if not args.continue_on_error:
             break

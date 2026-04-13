@@ -15,6 +15,7 @@ import csv
 import json
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from openai import OpenAI
@@ -220,7 +221,30 @@ def main() -> None:
                 client = create_openai_client(args, http_client=http_client)
             thread_local.client = client
         return client
-    tasks: list[dict[str, object]] = []
+    @dataclass(frozen=True)
+    class TsxTask:
+        row_index: int
+        json_row: dict[str, str]
+        tool_calls: list[str]
+        prompt: str
+        samples_per_input: int
+
+    @dataclass(frozen=True)
+    class TsxResult:
+        row_index: int
+        sample_index: int
+        json_row: dict[str, str]
+        prompt: str
+        tsx_code: str
+        format_ok: bool
+        tool_calls_ok: bool
+
+    @dataclass(frozen=True)
+    class TsxResultBundle:
+        row_index: int
+        results: list[TsxResult]
+
+    tasks: list[TsxTask] = []
 
     for row_index, row in enumerate(json_rows, start=1):
         try:
@@ -238,27 +262,27 @@ def main() -> None:
         )
 
         tasks.append(
-            {
-                "row_index": row_index,
-                "row": row,
-                "tool_calls": tool_calls,
-                "prompt": prompt,
-                "samples_per_input": args.samples_per_input,
-            }
+            TsxTask(
+                row_index=row_index,
+                json_row=row,
+                tool_calls=tool_calls,
+                prompt=prompt,
+                samples_per_input=args.samples_per_input,
+            )
         )
 
     total_calls = len(tasks)
 
-    def process_task(task: dict[str, object]) -> list[dict[str, object]]:
+    def process_task(task: TsxTask) -> list[TsxResult]:
         messages = [
             {
                 "role": "system",
                 "content": "You output raw TSX only for training datasets.",
             },
-            {"role": "user", "content": str(task["prompt"])},
+            {"role": "user", "content": task.prompt},
         ]
-        row_index = int(task["row_index"])
-        samples_per_input = int(task["samples_per_input"])
+        row_index = task.row_index
+        samples_per_input = task.samples_per_input
         outputs: list[str] = []
         client = get_thread_client()
 
@@ -311,20 +335,19 @@ def main() -> None:
         if len(outputs) < samples_per_input:
             outputs.extend([""] * (samples_per_input - len(outputs)))
 
-        tool_calls = task["tool_calls"]
-        results: list[dict[str, object]] = []
+        tool_calls = task.tool_calls
+        results: list[TsxResult] = []
         for choice_idx, tsx_code in enumerate(outputs[:samples_per_input], start=1):
             results.append(
-                {
-                    "row_index": row_index,
-                    "sample_index": choice_idx,
-                    "row": task["row"],
-                    "tool_calls": tool_calls,
-                    "prompt": task["prompt"],
-                    "tsx_code": tsx_code,
-                    "format_ok": looks_like_tsx(tsx_code),
-                    "tool_calls_ok": check_tool_calls_used(tsx_code, tool_calls),
-                }
+                TsxResult(
+                    row_index=row_index,
+                    sample_index=choice_idx,
+                    json_row=task.json_row,
+                    prompt=task.prompt,
+                    tsx_code=tsx_code,
+                    format_ok=looks_like_tsx(tsx_code),
+                    tool_calls_ok=check_tool_calls_used(tsx_code, tool_calls),
+                )
             )
         return results
 
@@ -334,21 +357,21 @@ def main() -> None:
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
 
-    def flush_row_results(result_bundle: dict[str, object], flush_writer: FlushWriter) -> int:
+    def flush_row_results(result_bundle: TsxResultBundle, flush_writer: FlushWriter) -> int:
         nonlocal filtered_out
-        results = result_bundle["results"]
+        results = result_bundle.results
         local_written = 0
         for result in results:
-            if args.filter_invalid and (not result["format_ok"] or not result["tool_calls_ok"]):
+            if args.filter_invalid and (not result.format_ok or not result.tool_calls_ok):
                 filtered_out += 1
                 continue
-            row = result["row"]
+            row = result.json_row
             now = utc_now_iso()
             flush_writer.writerow(
                 {
                     "created_at": now,
                     "model": args.model,
-                    "row_index": str(result["row_index"]),
+                    "row_index": str(result.row_index),
                     "json_created_at": row["created_at"],
                     "json_model": row["model"],
                     "scenario_created_at": row["scenario_created_at"],
@@ -358,30 +381,30 @@ def main() -> None:
                     "json_variant_index": row["variant_index"],
                     "json_difficulty_target": row["difficulty_target"],
                     "json_difficulty": row["difficulty"],
-                    "sample_index": str(result["sample_index"]),
-                    "prompt": result["prompt"],
+                    "sample_index": str(result.sample_index),
+                    "prompt": result.prompt,
                     "example_json": row["example_json"],
-                    "tsx_code": result["tsx_code"],
-                    "format_ok": "1" if result["format_ok"] else "0",
-                    "uses_declared_tool_calls": "1" if result["tool_calls_ok"] else "0",
+                    "tsx_code": result.tsx_code,
+                    "format_ok": "1" if result.format_ok else "0",
+                    "uses_declared_tool_calls": "1" if result.tool_calls_ok else "0",
                 }
             )
             local_written += 1
         return local_written
 
-    def process_task_bundle(task: dict[str, object]) -> dict[str, object]:
-        return {
-            "row_index": int(task["row_index"]),
-            "results": process_task(task),
-        }
+    def process_task_bundle(task: TsxTask) -> TsxResultBundle:
+        return TsxResultBundle(
+            row_index=task.row_index,
+            results=process_task(task),
+        )
 
-    def done_log(done: int, total_tasks: int, _: dict[str, object], result_bundle: dict[str, object]) -> str:
-        row_index = int(result_bundle["row_index"])
+    def done_log(done: int, total_tasks: int, _: TsxTask, result_bundle: TsxResultBundle) -> str:
+        row_index = result_bundle.row_index
         lines = []
-        for result in result_bundle["results"]:
+        for result in result_bundle.results:
             lines.append(
                 f"[DONE] request={done}/{total_tasks} row={row_index}/{len(json_rows)} "
-                f"choice={result['sample_index']}/{args.samples_per_input}"
+                f"choice={result.sample_index}/{args.samples_per_input}"
             )
         if not lines:
             lines.append(
@@ -389,9 +412,9 @@ def main() -> None:
             )
         return "\n".join(lines)
 
-    def warn_log(done: int, total_tasks: int, task: dict[str, object], exc: Exception) -> str:
+    def warn_log(done: int, total_tasks: int, task: TsxTask, exc: Exception) -> str:
         return (
-            f"[WARN] request={done}/{total_tasks} row={task['row_index']}/{len(json_rows)} "
+            f"[WARN] request={done}/{total_tasks} row={task.row_index}/{len(json_rows)} "
             f"request failed after retries: {exc}"
         )
 
@@ -404,8 +427,8 @@ def main() -> None:
         summary = run_ordered_stage(
             tasks=tasks,
             process_task=process_task_bundle,
-            task_key=lambda task: int(task["row_index"]),
-            result_key=lambda result_bundle: int(result_bundle["row_index"]),
+            task_key=lambda task: task.row_index,
+            result_key=lambda result_bundle: result_bundle.row_index,
             flush_result=flush_row_results,
             max_concurrency=args.max_concurrency,
             writer=writer,

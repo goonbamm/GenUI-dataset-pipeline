@@ -15,6 +15,7 @@ import csv
 import json
 import random
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
@@ -489,14 +490,31 @@ def main() -> None:
     rand = random.Random(args.example_seed)
     difficulty_rand = random.Random(args.difficulty_seed)
 
-    tasks: list[dict[str, object]] = [
-        {"row_index": row_index, "sample_index": 1, "row": row}
+    @dataclass(frozen=True)
+    class ExampleJsonTask:
+        row_index: int
+        sample_index: int
+        scenario_row: dict[str, str]
+
+    @dataclass(frozen=True)
+    class ExampleJsonResult:
+        row_index: int
+        sample_index: int
+        scenario_row: dict[str, str]
+        prompt: str
+        tool_calls: list[str]
+        tool_call_names: list[str]
+        difficulty_targets: list[str]
+        variants: list[dict]
+
+    tasks: list[ExampleJsonTask] = [
+        ExampleJsonTask(row_index=row_index, sample_index=1, scenario_row=row)
         for row_index, row in enumerate(scenario_rows, start=1)
     ]
 
-    def process_row(task: dict[str, object]) -> dict[str, object]:
-        row_index = int(task["row_index"])
-        row = task["row"]
+    def process_row(task: ExampleJsonTask) -> ExampleJsonResult:
+        row_index = task.row_index
+        row = task.scenario_row
         strict_key = (
             row["scenario_created_at"],
             row["scenario_model"],
@@ -544,16 +562,16 @@ def main() -> None:
 
         output_text = completion.choices[0].message.content or ""
         variants = parse_json_array(output_text)
-        return {
-            "row_index": row_index,
-            "sample_index": int(task["sample_index"]),
-            "row": row,
-            "prompt": prompt,
-            "tool_calls": tool_calls,
-            "tool_call_names": tool_call_names,
-            "difficulty_targets": difficulty_targets,
-            "variants": variants[: args.variants_per_scenario],
-        }
+        return ExampleJsonResult(
+            row_index=row_index,
+            sample_index=task.sample_index,
+            scenario_row=row,
+            prompt=prompt,
+            tool_calls=tool_calls,
+            tool_call_names=tool_call_names,
+            difficulty_targets=difficulty_targets,
+            variants=variants[: args.variants_per_scenario],
+        )
 
     dropped_no_overlap = 0
     out_path = Path(args.json_csv)
@@ -561,16 +579,16 @@ def main() -> None:
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
 
-    def flush_result(result: dict[str, object], flush_writer: FlushWriter) -> int:
+    def flush_result(result: ExampleJsonResult, flush_writer: FlushWriter) -> int:
         nonlocal dropped_no_overlap
-        row_index = int(result["row_index"])
-        sample_index = int(result["sample_index"])
-        row = result["row"]
-        prompt = str(result["prompt"])
-        tool_calls = result["tool_calls"]
-        tool_call_names = result["tool_call_names"]
-        difficulty_targets = result["difficulty_targets"]
-        variants = result["variants"]
+        row_index = result.row_index
+        sample_index = result.sample_index
+        row = result.scenario_row
+        prompt = result.prompt
+        tool_calls = result.tool_calls
+        tool_call_names = result.tool_call_names
+        difficulty_targets = result.difficulty_targets
+        variants = result.variants
         local_written = 0
 
         now = utc_now_iso()
@@ -609,14 +627,14 @@ def main() -> None:
             local_written += 1
         return local_written
 
-    def done_log(done: int, total_tasks: int, task: dict[str, object], _: dict[str, object]) -> str:
-        row_index = int(task["row_index"])
-        row = task["row"]
+    def done_log(done: int, total_tasks: int, task: ExampleJsonTask, _: ExampleJsonResult) -> str:
+        row_index = task.row_index
+        row = task.scenario_row
         return f"[DONE] {done}/{total_tasks} row={row_index} {row['category']} | {row['scenario']}"
 
-    def warn_log(done: int, total_tasks: int, task: dict[str, object], exc: Exception) -> str:
-        row_index = int(task["row_index"])
-        row = task["row"]
+    def warn_log(done: int, total_tasks: int, task: ExampleJsonTask, exc: Exception) -> str:
+        row_index = task.row_index
+        row = task.scenario_row
         return (
             f"[WARN] {done}/{total_tasks} row={row_index} {row['category']} | {row['scenario']} "
             f"request failed after retries or parse failed: {exc}"
@@ -631,8 +649,8 @@ def main() -> None:
         summary = run_ordered_stage(
             tasks=tasks,
             process_task=process_row,
-            task_key=lambda task: (int(task["row_index"]), int(task["sample_index"])),
-            result_key=lambda result: (int(result["row_index"]), int(result["sample_index"])),
+            task_key=lambda task: (task.row_index, task.sample_index),
+            result_key=lambda result: (result.row_index, result.sample_index),
             flush_result=flush_result,
             max_concurrency=args.max_concurrency,
             writer=writer,

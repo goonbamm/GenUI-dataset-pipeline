@@ -245,7 +245,8 @@ python generate_widget_tool_calls.py \
 - 시나리오 1개당 여러 개의 구체 JSON variant 생성 (`--variants-per-scenario`, 기본 3)
 - 내장된 10개 JSON 예시 풀에서 시나리오마다 무작위 일부를 선택해 프롬프트에 삽입 (`--max-examples`로 개수 조절)
 - 각 JSON 객체에 `tool_calls` 키를 강제 포함
-  - tool call이 있으면 함수명만 추출해 `tool_calls`에 반영
+  - tool call이 있으면 **tool 객체 배열(JSON)** 형태로 `tool_calls`에 반영
+  - 각 tool 객체는 `name`과 함께 `params` 또는 `data` payload를 포함 가능
   - 필요 없으면 `tool_calls: []`
 - 같은 시나리오에서도 다양한 도메인 변형(예: 쇼핑에서 커피/의류/전자제품 등)을 유도
 - CSV 저장 컬럼 (단일 파일 누적):
@@ -278,7 +279,56 @@ python generate_widget_tool_calls.py \
 - 구조 복잡도: 중첩 depth, 객체/배열 노드 수, 배열 원소 수가 많을수록 증가
 - payload 복잡도: 문자열 총 길이가 길수록 증가
 - 시나리오 복잡도: 시나리오 토큰 수가 많을수록 증가
-- tool call 모호성 보정: raw tool call 대비 함수명 추출이 많이 줄어들면 소폭 가산
+- tool call 모호성 보정: raw tool call 대비 구조화(`name/params/data`) 과정에서 정보 손실이 크면 소폭 가산
+
+#### 3단계 `tool_calls` 계약 예시 (검증 기준)
+
+아래처럼 `tool_calls`는 **문자열이 아닌 JSON 배열(배열 원소는 tool 객체)** 의미를 갖습니다.
+
+```json
+{
+  "screen": "상품 검색 결과",
+  "query": "무선 이어폰",
+  "items": [
+    {"id": "sku_101", "name": "Aero Buds", "price": 89000},
+    {"id": "sku_224", "name": "Pocket Sound", "price": 59000}
+  ],
+  "tool_calls": [
+    {
+      "name": "search_products",
+      "params": {
+        "query": "무선 이어폰",
+        "sort": "popular"
+      }
+    }
+  ]
+}
+```
+
+```json
+{
+  "screen": "송금 확인",
+  "recipient": {"name": "김민수", "bank": "KB"},
+  "amount": 50000,
+  "tool_calls": [
+    {
+      "name": "preview_transfer_fee",
+      "data": {
+        "bank_code": "004",
+        "amount": 50000
+      }
+    },
+    {
+      "name": "submit_transfer",
+      "params": {
+        "recipient_id": "user_8821",
+        "amount": 50000,
+        "memo": "저녁값"
+      }
+    }
+  ]
+}
+```
 
 최종 score(0~100)를 기준으로 다음 레벨을 붙입니다.
 - `low`: 0~33
@@ -329,6 +379,7 @@ python generate_widget_example_json.py \
   - 한 번의 호출에서는 TSX 1개만 생성
   - 같은 입력에 대해 여러 번 호출하여 다양한 정답 후보를 축적
 - 출력은 SFT 용도로 바로 사용 가능하도록 `prompt` + `example_json` + `tsx_code` 저장
+- UI 구성 시 입력 JSON의 `tool_calls[].params`/`tool_calls[].data`를 **그대로 사용**하고 임의 변환/축약하지 않음
 - 기본값으로 `format_ok=1` 및 `uses_declared_tool_calls=1`인 행만 저장 (`--filter-invalid`, 기본 켜짐)
   - 단, `tool_calls`가 빈 입력은 `uses_declared_tool_calls=1`로 간주되어 정상 통과
 - CSV 저장 컬럼:

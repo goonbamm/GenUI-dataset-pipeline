@@ -327,6 +327,8 @@ python generate_widget_example_json.py \
   - 한 번의 호출에서는 TSX 1개만 생성
   - 같은 입력에 대해 여러 번 호출하여 다양한 정답 후보를 축적
 - 출력은 SFT 용도로 바로 사용 가능하도록 `prompt` + `example_json` + `tsx_code` 저장
+- 기본값으로 `format_ok=1` 및 `uses_declared_tool_calls=1`인 행만 저장 (`--filter-invalid`, 기본 켜짐)
+  - 단, `tool_calls`가 빈 입력은 `uses_declared_tool_calls=1`로 간주되어 정상 통과
 - CSV 저장 컬럼:
   - `created_at`
   - `model`
@@ -366,5 +368,6 @@ python generate_genui_tsx.py \
 - `--temperature`: 샘플링 온도 (기본: `0.3`)
 - `--samples-per-input`: 입력 1개당 반복 생성 횟수 (기본: `3`)
 - `--limit-rows`: 앞에서 N개 JSON row만 테스트 생성 (기본: `0`, 전체)
+- `--filter-invalid` / `--no-filter-invalid`: 출력 전 품질 체크 필터 on/off (기본: on)
 
 </details>

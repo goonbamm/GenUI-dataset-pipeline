@@ -205,6 +205,16 @@ def main() -> None:
     parser.add_argument("--samples-per-input", type=int, default=3)
     parser.add_argument("--limit-rows", type=int, default=0)
     parser.add_argument("--max-concurrency", type=int, default=6)
+    parser.add_argument(
+        "--filter-invalid",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "When enabled (default), keep only rows where format_ok=1 and "
+            "uses_declared_tool_calls=1. "
+            "Rows with empty tool_calls are still valid by design."
+        ),
+    )
     args = parser.parse_args()
 
     if args.samples_per_input < 1:
@@ -341,7 +351,11 @@ def main() -> None:
 
     completed_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
 
+    filtered_out = 0
     for result in completed_results:
+        if args.filter_invalid and (not result["format_ok"] or not result["tool_calls_ok"]):
+            filtered_out += 1
+            continue
         row = result["row"]
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         rows_to_append.append(
@@ -381,6 +395,8 @@ def main() -> None:
             writer.writeheader()
         writer.writerows(rows_to_append)
 
+    if args.filter_invalid:
+        print(f"Filtered out {filtered_out} invalid rows.")
     print(f"Saved {len(rows_to_append)} rows to {out_path}")
 
 

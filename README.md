@@ -269,6 +269,10 @@ python generate_widget_tool_calls.py \
   - `difficulty` (`low|medium|high:score` 형식, 예: `medium:58`)
   - `example_json`
 
+> `tool_calls` 컬럼 계약(중요): Stage3 CSV의 `tool_calls`는 **raw 문자열 배열이 아니라**,  
+> Stage2 `tool_call` 문자열을 파싱/정규화한 **tool 객체 배열을 JSON 직렬화한 문자열**입니다.  
+> 즉 CSV 셀 값은 문자열이지만, 의미론적으로는 `example_json.tool_calls`와 동일한 객체 배열 계약을 가집니다.
+
 #### 3단계 난이도(`difficulty`) 산정 기준
 
 `difficulty`는 JSON variant 단위로 계산되며, **모델이 4단계에서 UI를 만들 때의 복잡도**를 근사합니다.
@@ -289,7 +293,8 @@ python generate_widget_tool_calls.py \
 
 #### 3단계 `tool_calls` 계약 예시 (검증 기준)
 
-아래처럼 `tool_calls`는 **문자열이 아닌 JSON 배열(배열 원소는 tool 객체)** 의미를 갖습니다.
+아래처럼 `tool_calls`는 **JSON 배열(배열 원소는 tool 객체)** 의미를 갖습니다.
+(Stage3 CSV `tool_calls` 컬럼에는 이 배열이 JSON 문자열로 저장됩니다.)
 
 ```json
 {
@@ -386,6 +391,9 @@ python generate_widget_example_json.py \
   - 같은 입력에 대해 여러 번 호출하여 다양한 정답 후보를 축적
 - 출력은 SFT 용도로 바로 사용 가능하도록 `prompt` + `example_json` + `tsx_code` 저장
 - UI 구성 시 입력 JSON의 `tool_calls[].params`/`tool_calls[].data`를 **그대로 사용**하고 임의 변환/축약하지 않음
+- Stage4 구현은 Stage3 CSV의 `tool_calls` 컬럼을 직접 파싱하지 않고, `example_json.tool_calls`를 기준으로 동작
+  - 단, 외부 분석/학습 파이프라인 호환을 위해 Stage3 `tool_calls` 컬럼 의미는 계속 유지:
+    `example_json.tool_calls`와 동등한 **정규화 tool 객체 배열(JSON 직렬화 문자열)** 메타데이터
 - 기본값으로 `format_ok=1` 및 `uses_declared_tool_calls=1`인 행만 저장 (`--filter-invalid`, 기본 켜짐)
   - 단, `tool_calls`가 빈 입력은 `uses_declared_tool_calls=1`로 간주되어 정상 통과
 - CSV 저장 컬럼:

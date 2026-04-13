@@ -51,7 +51,9 @@ class Stage3ExampleJsonCsvRow(TypedDict):
     category: str
     scenario: str
     prompt: str
-    # JSON-serialized array of tool objects.
+    # JSON-serialized array of normalized tool-call objects derived from Stage2.
+    # Each element is an object with `name` and optional `params`/`data`.
+    # This is NOT a raw string array.
     # Contract example:
     # [
     #   {"name": "search_products", "params": {"query": "wireless earbuds"}},
@@ -80,8 +82,10 @@ class Stage4TsxCsvRow(TypedDict):
     sample_index: str
     prompt: str
     example_json: str
-    # Carries forward Stage3 contract where `example_json.tool_calls` is a
-    # JSON array of tool objects (including `params`/`data` payloads).
+    # Stage4 prompt/build logic reads tool calls from `example_json.tool_calls`.
+    # The Stage3 `tool_calls` column is currently metadata for external
+    # analysis/training pipelines and should carry the same semantic contract:
+    # a JSON array of tool objects (including `params`/`data` payloads).
     tsx_code: str
     format_ok: str
     uses_declared_tool_calls: str

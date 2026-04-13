@@ -121,6 +121,42 @@ python generate_genui_tsx.py
 python run_pipeline.py
 ```
 
+### `python run_pipeline.py` 인자 전달 규칙
+
+`run_pipeline.py`는 **공통 인자**와 **stage별 인자**를 분리합니다.
+
+- 공통 인자(파이프라인 레벨):
+  - `--from-stage`, `--to-stage`, `--continue-on-error`
+- stage 전용 인자 채널:
+  - `--stage1-args "..."`
+  - `--stage2-args "..."`
+  - `--stage3-args "..."`
+  - `--stage4-args "..."`
+
+주의: stage 스크립트 옵션을 `run_pipeline.py`에 직접 붙이면 에러가 발생합니다.
+(예: `--limit-scenarios`를 직접 전달 ❌, `--stage2-args "--limit-scenarios 10"`로 전달 ✅)
+
+예시 1) 1~4단계 전체 실행 + 2단계/3단계 인자 전달
+
+```bash
+python run_pipeline.py \
+  --stage2-args "--limit-scenarios 10 --max-items-per-scenario 2" \
+  --stage3-args "--variants-per-scenario 2"
+```
+
+예시 2) 2~4단계만 실행 + 실패해도 계속
+
+```bash
+python run_pipeline.py \
+  --from-stage 2 \
+  --to-stage 4 \
+  --continue-on-error \
+  --stage2-args "--limit-scenarios 5" \
+  --stage4-args "--samples-per-input 1"
+```
+
+실패 로그에는 어떤 stage에서 실패했는지와 함께, 해당 stage에 실제로 전달된 인자(`problematic args`)가 포함됩니다.
+
 ---
 
 ## 자세한 사용법 (클릭해서 펼치기) 📘

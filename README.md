@@ -367,7 +367,16 @@ python generate_genui_tsx.py \
 - `--model`: 생성 모델명
 - `--temperature`: 샘플링 온도 (기본: `0.3`)
 - `--samples-per-input`: 입력 1개당 반복 생성 횟수 (기본: `3`)
+- `--max-concurrency`: 동시 요청 워커 수 (기본: `4`)
+- `--http-max-connections`: HTTP 총 연결 상한 (기본: `32`)
+- `--http-max-keepalive-connections`: keep-alive 연결 상한 (기본: `16`)
 - `--limit-rows`: 앞에서 N개 JSON row만 테스트 생성 (기본: `0`, 전체)
 - `--filter-invalid` / `--no-filter-invalid`: 출력 전 품질 체크 필터 on/off (기본: on)
+
+#### 메모리/처리량 트레이드오프
+
+- `--max-concurrency`를 크게 올리면 처리량은 증가할 수 있지만, 워커별 응답 객체/문자열이 동시에 메모리에 머물러 **피크 메모리 사용량이 빠르게 증가**합니다.
+- 기본값(`4`)은 메모리 안정성을 우선한 보수적 설정입니다. 서버/머신 여유가 충분할 때만 점진적으로 올려 보세요.
+- 연결 풀 상한(`--http-max-connections`, `--http-max-keepalive-connections`)을 함께 조정하면 과도한 커넥션 확장을 완화할 수 있습니다.
 
 </details>

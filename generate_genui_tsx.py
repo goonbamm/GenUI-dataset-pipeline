@@ -17,10 +17,16 @@ import datetime as dt
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
 from openai import OpenAI
+
+try:
+    import httpx
+except Exception:  # pragma: no cover - optional optimization
+    httpx = None
 
 JSON_REQUIRED_FIELDS = [
     "created_at",
@@ -194,6 +200,13 @@ def create_completion_with_retry(
             time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
 
 
+def collect_outputs_from_completion(completion, expected_count: int) -> list[str]:
+    outputs: list[str] = []
+    for choice in completion.choices[:expected_count]:
+        outputs.append(strip_code_fences(choice.message.content or ""))
+    return outputs
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-csv", default="mobile_widget_example_json.csv")
@@ -204,7 +217,9 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--samples-per-input", type=int, default=3)
     parser.add_argument("--limit-rows", type=int, default=0)
-    parser.add_argument("--max-concurrency", type=int, default=6)
+    parser.add_argument("--max-concurrency", type=int, default=4)
+    parser.add_argument("--http-max-connections", type=int, default=32)
+    parser.add_argument("--http-max-keepalive-connections", type=int, default=16)
     parser.add_argument("--flush-every", type=int, default=1)
     parser.add_argument(
         "--filter-invalid",
@@ -222,6 +237,10 @@ def main() -> None:
         raise ValueError("--samples-per-input must be >= 1")
     if args.max_concurrency < 1:
         raise ValueError("--max-concurrency must be >= 1")
+    if args.http_max_connections < 1:
+        raise ValueError("--http-max-connections must be >= 1")
+    if args.http_max_keepalive_connections < 1:
+        raise ValueError("--http-max-keepalive-connections must be >= 1")
     if args.flush_every < 1:
         raise ValueError("--flush-every must be >= 1")
 
@@ -233,7 +252,27 @@ def main() -> None:
         print("No stage-3 JSON rows found to process.")
         return
 
-    client = OpenAI(base_url=args.base_url, api_key=args.api_key)
+    thread_local = threading.local()
+
+    def get_thread_client() -> OpenAI:
+        client = getattr(thread_local, "client", None)
+        if client is None:
+            if httpx is None:
+                client = OpenAI(base_url=args.base_url, api_key=args.api_key)
+            else:
+                http_client = httpx.Client(
+                    limits=httpx.Limits(
+                        max_connections=args.http_max_connections,
+                        max_keepalive_connections=args.http_max_keepalive_connections,
+                    )
+                )
+                client = OpenAI(
+                    base_url=args.base_url,
+                    api_key=args.api_key,
+                    http_client=http_client,
+                )
+            thread_local.client = client
+        return client
     tasks: list[dict[str, object]] = []
 
     for row_index, row in enumerate(json_rows, start=1):
@@ -274,41 +313,53 @@ def main() -> None:
         row_index = int(task["row_index"])
         samples_per_input = int(task["samples_per_input"])
         outputs: list[str] = []
+        client = get_thread_client()
 
         if samples_per_input > 1:
             try:
-                completion = create_completion_with_retry(
-                    client,
-                    model=args.model,
-                    n=samples_per_input,
-                    temperature=args.temperature,
-                    messages=messages,
+                outputs.extend(
+                    collect_outputs_from_completion(
+                        create_completion_with_retry(
+                            client,
+                            model=args.model,
+                            n=samples_per_input,
+                            temperature=args.temperature,
+                            messages=messages,
+                        ),
+                        samples_per_input,
+                    )
                 )
-                for choice in completion.choices:
-                    outputs.append(strip_code_fences(choice.message.content or ""))
             except UnsupportedNError as e:
                 print(
                     f"[INFO] row={row_index}/{len(json_rows)} n={samples_per_input} unsupported, "
                     f"fallback to n=1 repeated calls: {e}"
                 )
                 for _ in range(samples_per_input):
-                    completion = create_completion_with_retry(
+                    outputs.extend(
+                        collect_outputs_from_completion(
+                            create_completion_with_retry(
+                                client,
+                                model=args.model,
+                                n=1,
+                                temperature=args.temperature,
+                                messages=messages,
+                            ),
+                            1,
+                        )
+                    )
+        else:
+            outputs.extend(
+                collect_outputs_from_completion(
+                    create_completion_with_retry(
                         client,
                         model=args.model,
                         n=1,
                         temperature=args.temperature,
                         messages=messages,
-                    )
-                    outputs.append(strip_code_fences(completion.choices[0].message.content or ""))
-        else:
-            completion = create_completion_with_retry(
-                client,
-                model=args.model,
-                n=1,
-                temperature=args.temperature,
-                messages=messages,
+                    ),
+                    1,
+                )
             )
-            outputs.append(strip_code_fences(completion.choices[0].message.content or ""))
 
         if len(outputs) < samples_per_input:
             outputs.extend([""] * (samples_per_input - len(outputs)))

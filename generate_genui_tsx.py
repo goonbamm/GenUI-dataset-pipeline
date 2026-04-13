@@ -11,7 +11,6 @@ Stage 4 helper script:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import csv
 import json
 import re
@@ -22,6 +21,7 @@ from openai import OpenAI
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import UnsupportedNError, create_completion_with_retry
+from common.stage_executor import FlushWriter, run_ordered_stage
 
 try:
     import httpx
@@ -328,20 +328,15 @@ def main() -> None:
             )
         return results
 
-    done = 0
     filtered_out = 0
     out_path = Path(args.tsx_csv)
     file_exists = out_path.exists()
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
-    written_rows = 0
-    pending_since_flush = 0
-    buffered_by_row: dict[int, list[dict[str, object]]] = {}
-    failed_rows: set[int] = set()
-    next_row_to_flush = 1
 
-    def flush_row_results(results: list[dict[str, object]], writer: csv.DictWriter, output_file) -> int:
-        nonlocal filtered_out, pending_since_flush
+    def flush_row_results(result_bundle: dict[str, object], flush_writer: FlushWriter) -> int:
+        nonlocal filtered_out
+        results = result_bundle["results"]
         local_written = 0
         for result in results:
             if args.filter_invalid and (not result["format_ok"] or not result["tool_calls_ok"]):
@@ -349,7 +344,7 @@ def main() -> None:
                 continue
             row = result["row"]
             now = utc_now_iso()
-            writer.writerow(
+            flush_writer.writerow(
                 {
                     "created_at": now,
                     "model": args.model,
@@ -372,11 +367,33 @@ def main() -> None:
                 }
             )
             local_written += 1
-            pending_since_flush += 1
-            if pending_since_flush >= args.flush_every:
-                output_file.flush()
-                pending_since_flush = 0
         return local_written
+
+    def process_task_bundle(task: dict[str, object]) -> dict[str, object]:
+        return {
+            "row_index": int(task["row_index"]),
+            "results": process_task(task),
+        }
+
+    def done_log(done: int, total_tasks: int, _: dict[str, object], result_bundle: dict[str, object]) -> str:
+        row_index = int(result_bundle["row_index"])
+        lines = []
+        for result in result_bundle["results"]:
+            lines.append(
+                f"[DONE] request={done}/{total_tasks} row={row_index}/{len(json_rows)} "
+                f"choice={result['sample_index']}/{args.samples_per_input}"
+            )
+        if not lines:
+            lines.append(
+                f"[DONE] request={done}/{total_tasks} row={row_index}/{len(json_rows)} choice=0/{args.samples_per_input}"
+            )
+        return "\n".join(lines)
+
+    def warn_log(done: int, total_tasks: int, task: dict[str, object], exc: Exception) -> str:
+        return (
+            f"[WARN] request={done}/{total_tasks} row={task['row_index']}/{len(json_rows)} "
+            f"request failed after retries: {exc}"
+        )
 
     with out_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=TSX_FIELDS)
@@ -384,50 +401,26 @@ def main() -> None:
             writer.writeheader()
             f.flush()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
-            future_to_task = {executor.submit(process_task, task): task for task in tasks}
-            for future in concurrent.futures.as_completed(future_to_task):
-                done += 1
-                task = future_to_task[future]
-                row_index = int(task["row_index"])
-                try:
-                    results = future.result()
-                    buffered_by_row[row_index] = sorted(
-                        results, key=lambda x: int(x["sample_index"])
-                    )
-                    for result in results:
-                        print(
-                            f"[DONE] request={done}/{total_calls} row={result['row_index']}/{len(json_rows)} "
-                            f"choice={result['sample_index']}/{args.samples_per_input}"
-                        )
-                except Exception as e:
-                    failed_rows.add(row_index)
-                    print(
-                        f"[WARN] request={done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
-                        f"request failed after retries: {e}"
-                    )
+        summary = run_ordered_stage(
+            tasks=tasks,
+            process_task=process_task_bundle,
+            task_key=lambda task: int(task["row_index"]),
+            result_key=lambda result_bundle: int(result_bundle["row_index"]),
+            flush_result=flush_row_results,
+            max_concurrency=args.max_concurrency,
+            writer=writer,
+            output_file=f,
+            flush_every=args.flush_every,
+            done_log=done_log,
+            warn_log=warn_log,
+        )
 
-                while True:
-                    if next_row_to_flush in failed_rows:
-                        failed_rows.remove(next_row_to_flush)
-                        next_row_to_flush += 1
-                        continue
-                    if next_row_to_flush in buffered_by_row:
-                        results_to_flush = buffered_by_row.pop(next_row_to_flush)
-                        written_rows += flush_row_results(results_to_flush, writer, f)
-                        next_row_to_flush += 1
-                        continue
-                    break
-
-        if pending_since_flush:
-            f.flush()
-
-    if not written_rows:
+    if not summary.written_rows:
         print("No TSX rows generated.")
         return
     if args.filter_invalid:
         print(f"Filtered out {filtered_out} invalid rows.")
-    print(f"Saved {written_rows} rows to {out_path}")
+    print(f"Saved {summary.written_rows} rows to {out_path}")
 
 
 if __name__ == "__main__":

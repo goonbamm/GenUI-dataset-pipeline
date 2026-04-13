@@ -205,6 +205,7 @@ def main() -> None:
     parser.add_argument("--samples-per-input", type=int, default=3)
     parser.add_argument("--limit-rows", type=int, default=0)
     parser.add_argument("--max-concurrency", type=int, default=6)
+    parser.add_argument("--flush-every", type=int, default=1)
     parser.add_argument(
         "--filter-invalid",
         action=argparse.BooleanOptionalAction,
@@ -221,6 +222,8 @@ def main() -> None:
         raise ValueError("--samples-per-input must be >= 1")
     if args.max_concurrency < 1:
         raise ValueError("--max-concurrency must be >= 1")
+    if args.flush_every < 1:
+        raise ValueError("--flush-every must be >= 1")
 
     json_rows = load_json_rows(Path(args.json_csv))
     if args.limit_rows > 0:
@@ -231,7 +234,6 @@ def main() -> None:
         return
 
     client = OpenAI(base_url=args.base_url, api_key=args.api_key)
-    rows_to_append: list[dict[str, str]] = []
     tasks: list[dict[str, object]] = []
 
     for row_index, row in enumerate(json_rows, start=1):
@@ -329,75 +331,105 @@ def main() -> None:
         return results
 
     done = 0
-    completed_results: list[dict[str, object]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
-        future_to_task = {executor.submit(process_task, task): task for task in tasks}
-        for future in concurrent.futures.as_completed(future_to_task):
-            done += 1
-            task = future_to_task[future]
-            try:
-                results = future.result()
-                completed_results.extend(results)
-                for result in results:
-                    print(
-                        f"[DONE] request={done}/{total_calls} row={result['row_index']}/{len(json_rows)} "
-                        f"choice={result['sample_index']}/{args.samples_per_input}"
-                    )
-            except Exception as e:
-                print(
-                    f"[WARN] request={done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
-                    f"request failed after retries: {e}"
-                )
-
-    completed_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
-
     filtered_out = 0
-    for result in completed_results:
-        if args.filter_invalid and (not result["format_ok"] or not result["tool_calls_ok"]):
-            filtered_out += 1
-            continue
-        row = result["row"]
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
-        rows_to_append.append(
-            {
-                "created_at": now,
-                "model": args.model,
-                "row_index": str(result["row_index"]),
-                "json_created_at": row["created_at"],
-                "json_model": row["model"],
-                "scenario_created_at": row["scenario_created_at"],
-                "scenario_model": row["scenario_model"],
-                "category": row["category"],
-                "scenario": row["scenario"],
-                "json_variant_index": row["variant_index"],
-                "json_difficulty_target": row["difficulty_target"],
-                "json_difficulty": row["difficulty"],
-                "sample_index": str(result["sample_index"]),
-                "prompt": result["prompt"],
-                "example_json": row["example_json"],
-                "tsx_code": result["tsx_code"],
-                "format_ok": "1" if result["format_ok"] else "0",
-                "uses_declared_tool_calls": "1" if result["tool_calls_ok"] else "0",
-            }
-        )
-
-    if not rows_to_append:
-        print("No TSX rows generated.")
-        return
-
     out_path = Path(args.tsx_csv)
     file_exists = out_path.exists()
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
+    written_rows = 0
+    pending_since_flush = 0
+    buffered_by_row: dict[int, list[dict[str, object]]] = {}
+    failed_rows: set[int] = set()
+    next_row_to_flush = 1
+
+    def flush_row_results(results: list[dict[str, object]], writer: csv.DictWriter, output_file) -> int:
+        nonlocal filtered_out, pending_since_flush
+        local_written = 0
+        for result in results:
+            if args.filter_invalid and (not result["format_ok"] or not result["tool_calls_ok"]):
+                filtered_out += 1
+                continue
+            row = result["row"]
+            now = dt.datetime.now(dt.timezone.utc).isoformat()
+            writer.writerow(
+                {
+                    "created_at": now,
+                    "model": args.model,
+                    "row_index": str(result["row_index"]),
+                    "json_created_at": row["created_at"],
+                    "json_model": row["model"],
+                    "scenario_created_at": row["scenario_created_at"],
+                    "scenario_model": row["scenario_model"],
+                    "category": row["category"],
+                    "scenario": row["scenario"],
+                    "json_variant_index": row["variant_index"],
+                    "json_difficulty_target": row["difficulty_target"],
+                    "json_difficulty": row["difficulty"],
+                    "sample_index": str(result["sample_index"]),
+                    "prompt": result["prompt"],
+                    "example_json": row["example_json"],
+                    "tsx_code": result["tsx_code"],
+                    "format_ok": "1" if result["format_ok"] else "0",
+                    "uses_declared_tool_calls": "1" if result["tool_calls_ok"] else "0",
+                }
+            )
+            local_written += 1
+            pending_since_flush += 1
+            if pending_since_flush >= args.flush_every:
+                output_file.flush()
+                pending_since_flush = 0
+        return local_written
+
     with out_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=TSX_FIELDS)
         if not file_exists:
             writer.writeheader()
-        writer.writerows(rows_to_append)
+            f.flush()
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
+            future_to_task = {executor.submit(process_task, task): task for task in tasks}
+            for future in concurrent.futures.as_completed(future_to_task):
+                done += 1
+                task = future_to_task[future]
+                row_index = int(task["row_index"])
+                try:
+                    results = future.result()
+                    buffered_by_row[row_index] = sorted(
+                        results, key=lambda x: int(x["sample_index"])
+                    )
+                    for result in results:
+                        print(
+                            f"[DONE] request={done}/{total_calls} row={result['row_index']}/{len(json_rows)} "
+                            f"choice={result['sample_index']}/{args.samples_per_input}"
+                        )
+                except Exception as e:
+                    failed_rows.add(row_index)
+                    print(
+                        f"[WARN] request={done}/{total_calls} row={task['row_index']}/{len(json_rows)} "
+                        f"request failed after retries: {e}"
+                    )
+
+                while True:
+                    if next_row_to_flush in failed_rows:
+                        failed_rows.remove(next_row_to_flush)
+                        next_row_to_flush += 1
+                        continue
+                    if next_row_to_flush in buffered_by_row:
+                        results_to_flush = buffered_by_row.pop(next_row_to_flush)
+                        written_rows += flush_row_results(results_to_flush, writer, f)
+                        next_row_to_flush += 1
+                        continue
+                    break
+
+        if pending_since_flush:
+            f.flush()
+
+    if not written_rows:
+        print("No TSX rows generated.")
+        return
     if args.filter_invalid:
         print(f"Filtered out {filtered_out} invalid rows.")
-    print(f"Saved {len(rows_to_append)} rows to {out_path}")
+    print(f"Saved {written_rows} rows to {out_path}")
 
 
 if __name__ == "__main__":

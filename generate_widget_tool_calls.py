@@ -281,12 +281,15 @@ def main() -> None:
     parser.add_argument("--max-examples", type=int, default=10)
     parser.add_argument("--limit-scenarios", type=int, default=0)
     parser.add_argument("--max-concurrency", type=int, default=6)
+    parser.add_argument("--flush-every", type=int, default=1)
     args = parser.parse_args()
 
     if args.max_items_per_scenario < 1:
         raise ValueError("--max-items-per-scenario must be >= 1")
     if args.max_concurrency < 1:
         raise ValueError("--max-concurrency must be >= 1")
+    if args.flush_every < 1:
+        raise ValueError("--flush-every must be >= 1")
 
     scenario_rows = load_scenarios(Path(args.scenario_csv))
     if args.limit_scenarios > 0:
@@ -335,41 +338,32 @@ def main() -> None:
             "items": items,
         }
 
-    rows_to_append: list[dict[str, str]] = []
     total = len(scenario_rows)
     done = 0
-    ordered_results: list[dict[str, object]] = []
+    tool_call_csv_path = Path(args.tool_call_csv)
+    file_exists = tool_call_csv_path.exists()
+    write_mode = "a" if file_exists else "w"
+    write_encoding = "utf-8" if file_exists else "utf-8-sig"
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
-        future_to_row = {
-            executor.submit(process_row, row_index, row): (row_index, row)
-            for row_index, row in enumerate(scenario_rows, start=1)
-        }
+    written_rows = 0
+    buffered_results: dict[tuple[int, int], dict[str, object]] = {}
+    failed_results: set[tuple[int, int]] = set()
+    next_expected = (1, 1)
 
-        for future in concurrent.futures.as_completed(future_to_row):
-            done += 1
-            row_index, row = future_to_row[future]
-            try:
-                ordered_results.append(future.result())
-                print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
-            except Exception as e:
-                print(
-                    f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
-                    f"request failed after retries: {e}"
-                )
+    pending_since_flush = 0
 
-    ordered_results.sort(key=lambda x: (int(x["row_index"]), int(x["sample_index"])))
-
-    for result in ordered_results:
+    def flush_result(result: dict[str, object], writer: csv.DictWriter, output_file) -> int:
+        nonlocal pending_since_flush
         row_index = int(result["row_index"])
         sample_index = int(result["sample_index"])
         row = result["row"]
         prompt = str(result["prompt"])
         items = result["items"]
+        local_written = 0
 
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         for item in items:
-            rows_to_append.append(
+            writer.writerow(
                 {
                     "created_at": now,
                     "model": args.model,
@@ -383,22 +377,58 @@ def main() -> None:
                     "tool_call": item,
                 }
             )
+            local_written += 1
+            pending_since_flush += 1
+            if pending_since_flush >= args.flush_every:
+                output_file.flush()
+                pending_since_flush = 0
+        return local_written
 
-    if not rows_to_append:
-        print("No tool calls generated.")
-        return
-
-    tool_call_csv_path = Path(args.tool_call_csv)
-    file_exists = tool_call_csv_path.exists()
-    write_mode = "a" if file_exists else "w"
-    write_encoding = "utf-8" if file_exists else "utf-8-sig"
     with tool_call_csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=TOOL_CALL_FIELDS)
         if not file_exists:
             writer.writeheader()
-        writer.writerows(rows_to_append)
+            f.flush()
 
-    print(f"Saved {len(rows_to_append)} rows to {tool_call_csv_path}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
+            future_to_row = {
+                executor.submit(process_row, row_index, row): (row_index, row)
+                for row_index, row in enumerate(scenario_rows, start=1)
+            }
+
+            for future in concurrent.futures.as_completed(future_to_row):
+                done += 1
+                row_index, row = future_to_row[future]
+                try:
+                    result = future.result()
+                    buffered_results[(int(result["row_index"]), int(result["sample_index"]))] = result
+                    print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
+                except Exception as e:
+                    failed_results.add((int(row_index), 1))
+                    print(
+                        f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
+                        f"request failed after retries: {e}"
+                    )
+
+                while True:
+                    if next_expected in failed_results:
+                        failed_results.remove(next_expected)
+                        next_expected = (next_expected[0] + 1, 1)
+                        continue
+                    if next_expected in buffered_results:
+                        ordered_result = buffered_results.pop(next_expected)
+                        written_rows += flush_result(ordered_result, writer, f)
+                        next_expected = (next_expected[0] + 1, 1)
+                        continue
+                    break
+
+        if pending_since_flush:
+            f.flush()
+
+    if not written_rows:
+        print("No tool calls generated.")
+        return
+    print(f"Saved {written_rows} rows to {tool_call_csv_path}")
 
 
 if __name__ == "__main__":

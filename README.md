@@ -344,7 +344,7 @@ python generate_widget_tool_calls.py \
 - 내장된 10개 JSON 예시 풀에서 시나리오마다 무작위 일부를 선택해 프롬프트에 삽입 (`--max-examples`로 개수 조절)
 - 각 JSON 객체에 `tool_calls` 키를 강제 포함
   - tool call이 있으면 **tool 객체 배열(JSON)** 형태로 `tool_calls`에 반영
-  - 각 tool 객체는 `name`과 함께 `params` 또는 `data` payload를 포함 가능
+  - 각 tool 객체는 `name`과 함께 `params` payload를 포함 가능
   - 필요 없으면 `tool_calls: []`
 - 같은 시나리오에서도 다양한 도메인 변형(예: 쇼핑에서 커피/의류/전자제품 등)을 유도
 - CSV 저장 컬럼 (단일 파일 누적):
@@ -381,7 +381,7 @@ python generate_widget_tool_calls.py \
 - 구조 복잡도: 중첩 depth, 객체/배열 노드 수, 배열 원소 수가 많을수록 증가
 - payload 복잡도: 문자열 총 길이가 길수록 증가
 - 시나리오 복잡도: 시나리오 토큰 수가 많을수록 증가
-- tool call 모호성 보정: raw tool call 대비 구조화(`name/params/data`) 과정에서 정보 손실이 크면 소폭 가산
+- tool call 모호성 보정: raw tool call 대비 구조화(`name/params`) 과정에서 정보 손실이 크면 소폭 가산
 
 #### 3단계 `tool_calls` 계약 예시 (검증 기준)
 
@@ -416,8 +416,8 @@ python generate_widget_tool_calls.py \
   "tool_calls": [
     {
       "name": "preview_transfer_fee",
-      "data": {
-        "bank_code": "004",
+      "params": {
+        "recipient_id": "user_8821",
         "amount": 50000
       }
     },
@@ -485,7 +485,7 @@ python generate_widget_example_json.py \
   - 한 번의 호출에서는 TSX 1개만 생성
   - 같은 입력에 대해 여러 번 호출하여 다양한 정답 후보를 축적
 - 출력은 SFT 용도로 바로 사용 가능하도록 `prompt` + `example_json` + `tsx_code` 저장
-- UI 구성 시 입력 JSON의 `tool_calls[].params`/`tool_calls[].data`를 **그대로 사용**하고 임의 변환/축약하지 않음
+- UI 구성 시 입력 JSON의 `tool_calls[].params`를 **그대로 사용**하고 임의 변환/축약하지 않음
 - Stage4 구현은 Stage3 CSV의 `tool_calls` 컬럼을 직접 파싱하지 않고, `example_json.tool_calls`를 기준으로 동작
   - 단, 외부 분석/학습 파이프라인 호환을 위해 Stage3 `tool_calls` 컬럼 의미는 계속 유지:
     `example_json.tool_calls`와 동등한 **정규화 tool 객체 배열(JSON 직렬화 문자열)** 메타데이터

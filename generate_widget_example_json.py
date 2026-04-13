@@ -43,9 +43,9 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "discount_percent": 15,
         "delivery_eta": "2026-04-12",
         "tool_calls": [
-            {"name": "search_products", "params": {"query": "drip bag coffee"}, "data": {}},
-            {"name": "add_to_cart", "params": {"product_id": "bean_lab_db_01"}, "data": {}},
-            {"name": "buy_now", "params": {"payment_method": "card"}, "data": {}},
+            {"name": "search_products", "params": {"query": "drip bag coffee"}},
+            {"name": "add_to_cart", "params": {"product_id": "bean_lab_db_01"}},
+            {"name": "buy_now", "params": {"payment_method": "card"}},
         ],
     },
     {
@@ -55,9 +55,9 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "price_krw": 45900,
         "stock_status": "in_stock",
         "tool_calls": [
-            {"name": "select_variant", "params": {"size": "M", "color": "ivory"}, "data": {}},
-            {"name": "add_to_cart", "params": {"sku": "linen_shirt_ivory_m"}, "data": {}},
-            {"name": "checkout", "params": {"coupon_code": "SPRING15"}, "data": {}},
+            {"name": "select_variant", "params": {"size": "M", "color": "ivory"}},
+            {"name": "add_to_cart", "params": {"sku": "linen_shirt_ivory_m"}},
+            {"name": "checkout", "params": {"coupon_code": "SPRING15"}},
         ],
     },
     {
@@ -66,8 +66,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "room_number": "301",
         "reservation_status": "confirmed",
         "tool_calls": [
-            {"name": "get_reservation_information", "params": {"reservation_id": "RSV-20260326-301"}, "data": {}},
-            {"name": "cancel_reservation", "params": {"reason": "schedule_changed"}, "data": {}},
+            {"name": "get_reservation_information", "params": {"reservation_id": "RSV-20260326-301"}},
+            {"name": "cancel_reservation", "params": {"reason": "schedule_changed"}},
         ],
     },
     {
@@ -77,8 +77,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "gate": "A12",
         "boarding_status": "boarding_soon",
         "tool_calls": [
-            {"name": "view_boarding_pass", "params": {"flight_number": "KE102"}, "data": {}},
-            {"name": "check_flight_status", "params": {"flight_number": "KE102"}, "data": {}},
+            {"name": "view_boarding_pass", "params": {"flight_number": "KE102"}},
+            {"name": "check_flight_status", "params": {"flight_number": "KE102"}},
         ],
     },
     {
@@ -88,8 +88,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "seat_section": "E2",
         "ticket_status": "paid",
         "tool_calls": [
-            {"name": "view_ticket_qr", "params": {"ticket_id": "TKT-E2-441"}, "data": {}},
-            {"name": "cancel_ticket", "params": {"ticket_id": "TKT-E2-441"}, "data": {}},
+            {"name": "view_ticket_qr", "params": {"ticket_id": "TKT-E2-441"}},
+            {"name": "cancel_ticket", "params": {"ticket_id": "TKT-E2-441"}},
         ],
     },
     {
@@ -100,8 +100,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         ],
         "busy_slots": 2,
         "tool_calls": [
-            {"name": "create_event", "params": {"title": "design_sync", "time": "10:00"}, "data": {}},
-            {"name": "open_event_detail", "params": {"event_id": "evt_1530"}, "data": {}},
+            {"name": "create_event", "params": {"title": "design_sync", "time": "10:00"}},
+            {"name": "open_event_detail", "params": {"event_id": "evt_1530"}},
         ],
     },
     {
@@ -110,9 +110,9 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "remaining_tracks": 12,
         "playback_mode": "shuffle",
         "tool_calls": [
-            {"name": "play_music", "params": {"playlist_id": "focus_lofi_mix"}, "data": {}},
-            {"name": "skip_track", "params": {}, "data": {}},
-            {"name": "save_playlist", "params": {"playlist_id": "focus_lofi_mix"}, "data": {}},
+            {"name": "play_music", "params": {"playlist_id": "focus_lofi_mix"}},
+            {"name": "skip_track", "params": {}},
+            {"name": "save_playlist", "params": {"playlist_id": "focus_lofi_mix"}},
         ],
     },
     {
@@ -121,8 +121,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "cook_time_min": 25,
         "missing_ingredients": ["tofu"],
         "tool_calls": [
-            {"name": "show_recipe", "params": {"recipe_id": "tofu_kimchi_stew"}, "data": {}},
-            {"name": "add_ingredients_to_cart", "params": {"items": ["tofu"]}, "data": {}},
+            {"name": "show_recipe", "params": {"recipe_id": "tofu_kimchi_stew"}},
+            {"name": "add_ingredients_to_cart", "params": {"items": ["tofu"]}},
         ],
     },
     {
@@ -131,9 +131,9 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "calorie_goal": 280,
         "progress_percent": 40,
         "tool_calls": [
-            {"name": "start_workout", "params": {"workout_type": "interval_running"}, "data": {}},
-            {"name": "pause_workout", "params": {"elapsed_min": 12}, "data": {}},
-            {"name": "finish_workout", "params": {"elapsed_min": 30}, "data": {}},
+            {"name": "start_workout", "params": {"workout_type": "interval_running"}},
+            {"name": "pause_workout", "params": {"elapsed_min": 12}},
+            {"name": "finish_workout", "params": {"elapsed_min": 30}},
         ],
     },
     {
@@ -142,8 +142,8 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "status": "out_for_delivery",
         "estimated_arrival": "2026-04-09T19:00:00+09:00",
         "tool_calls": [
-            {"name": "track_package", "params": {"package_id": "KR-1Z-88A2"}, "data": {}},
-            {"name": "contact_courier", "params": {"carrier": "cj_logistics"}, "data": {}},
+            {"name": "track_package", "params": {"package_id": "KR-1Z-88A2"}},
+            {"name": "contact_courier", "params": {"carrier": "cj_logistics"}},
         ],
     },
 ]
@@ -223,7 +223,7 @@ Reference JSON examples (style only, do not copy values as-is):
 Requirements:
 1) Return ONLY a JSON array with exactly {variants_per_scenario} objects.
 2) Every object must include "tool_calls" key with a JSON array of objects in this schema:
-   [{{"name": "search_products", "params": {{}}, "data": {{}}}}]
+   [{{"name": "search_products", "params": {{}}}}]
 3) If tool calls are given, map them into the tool_calls list and preserve the stage2 tool_call argument structure as much as possible.
 4) If no tool call is needed, set "tool_calls": [].
 5) Add concrete, user-facing fields relevant to the scenario (dates, names, numbers, status, prices, etc.).
@@ -302,10 +302,10 @@ def parse_tool_call_object(tool_call: str) -> dict[str, object] | None:
     try:
         expr = ast.parse(raw, mode="eval").body
     except SyntaxError:
-        return {"name": fallback_name, "params": {}, "data": {"raw": raw, "parse_error": "syntax_error"}}
+        return {"name": fallback_name, "params": {}}
 
     if not isinstance(expr, ast.Call):
-        return {"name": fallback_name, "params": {}, "data": {"raw": raw, "parse_error": "not_call_expr"}}
+        return {"name": fallback_name, "params": {}}
 
     func_name = fallback_name
     if isinstance(expr.func, ast.Name):
@@ -320,7 +320,7 @@ def parse_tool_call_object(tool_call: str) -> dict[str, object] | None:
         if kw.arg:
             params[kw.arg] = _ast_to_jsonable(kw.value)
 
-    return {"name": func_name, "params": params, "data": {"raw": raw}}
+    return {"name": func_name, "params": params}
 
 
 def ensure_tool_calls(obj: dict, fallback_tool_calls: list[dict[str, object]]) -> dict:
@@ -340,11 +340,9 @@ def ensure_tool_calls(obj: dict, fallback_tool_calls: list[dict[str, object]]) -
                 name = extract_tool_call_name(str(item.get("tool_call") or item.get("raw") or ""))
             if isinstance(name, str) and name.strip():
                 params = item.get("params")
-                data = item.get("data")
                 normalized = {
                     "name": name.strip().lower(),
                     "params": params if isinstance(params, dict) else {},
-                    "data": data if isinstance(data, dict) else {},
                 }
 
         if normalized:
@@ -676,7 +674,7 @@ def main() -> None:
                     "prompt": prompt,
                     # Stage3 CSV contract: persist structured tool-call objects.
                     # `tool_calls` is a JSON-serialized array whose elements are
-                    # normalized objects (name + optional params/data), aligned
+                    # normalized objects (name + optional params), aligned
                     # with `example_json.tool_calls`.
                     "tool_calls": json.dumps(parsed_tool_calls, ensure_ascii=False),
                     "variant_index": str(variant_index),

@@ -67,7 +67,6 @@ def parse_tool_calls(example_obj: dict[str, object]) -> list[dict[str, object]]:
                 {
                     "name": call.strip(),
                     "params": {},
-                    "data": {},
                 }
             )
             continue
@@ -80,12 +79,10 @@ def parse_tool_calls(example_obj: dict[str, object]) -> list[dict[str, object]]:
             continue
 
         params = call.get("params")
-        data = call.get("data")
         cleaned.append(
             {
                 "name": name_raw.strip(),
                 "params": params if isinstance(params, dict) else {},
-                "data": data if isinstance(data, dict) else {},
             }
         )
     return cleaned
@@ -100,7 +97,7 @@ def build_prompt(
     if tool_calls:
         tool_call_text = ", ".join(
             [
-                f"{call['name']} (params={json.dumps(call['params'], ensure_ascii=False)}, data={json.dumps(call['data'], ensure_ascii=False)})"
+                f"{call['name']} (params={json.dumps(call['params'], ensure_ascii=False)})"
                 for call in tool_calls
             ]
         )
@@ -124,7 +121,7 @@ Requirements:
 4) Use plain semantic HTML tags (div, section, h1~h3, p, ul/li, button, etc.).
 5) Render the key fields from Input JSON so the user can understand current state.
 6) If tool calls exist, render tool-call buttons/UI in the same order. Use readable labels.
-7) Never infer or fabricate tool parameters. Render `params` and `data` from Input JSON as-is.
+7) Never infer or fabricate tool parameters. Render `params` from Input JSON as-is.
 8) Avoid network calls and side effects; this is a static training target.
 9) Keep code concise and deterministic.
 """
@@ -154,12 +151,9 @@ def check_tool_calls_used(tsx: str, tool_calls: list[dict[str, object]]) -> bool
             return False
 
         params = tool_call.get("params", {})
-        data = tool_call.get("data", {})
         key_tokens: list[str] = []
         if isinstance(params, dict):
             key_tokens.extend([str(k).lower() for k in params.keys() if str(k).strip()])
-        if isinstance(data, dict):
-            key_tokens.extend([str(k).lower() for k in data.keys() if str(k).strip()])
 
         if key_tokens and not any(token in lower for token in key_tokens):
             return False

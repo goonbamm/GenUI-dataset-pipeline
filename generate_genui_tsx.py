@@ -13,15 +13,14 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
-import datetime as dt
 import json
-import os
 import re
 import threading
 from pathlib import Path
 
 from openai import OpenAI
 
+from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import UnsupportedNError, create_completion_with_retry
 
 try:
@@ -166,10 +165,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-csv", default="mobile_widget_example_json.csv")
     parser.add_argument("--tsx-csv", default="mobile_widget_genui_tsx.csv")
-    parser.add_argument("--base-url", default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"))
-    parser.add_argument("--api-key", default=os.getenv("VLLM_API_KEY", "EMPTY"))
-    parser.add_argument("--model", default=os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"))
-    parser.add_argument("--temperature", type=float, default=0.3)
+    add_openai_cli_args(parser, default_temperature=0.3)
     parser.add_argument("--samples-per-input", type=int, default=3)
     parser.add_argument("--limit-rows", type=int, default=0)
     parser.add_argument("--max-concurrency", type=int, default=4)
@@ -213,7 +209,7 @@ def main() -> None:
         client = getattr(thread_local, "client", None)
         if client is None:
             if httpx is None:
-                client = OpenAI(base_url=args.base_url, api_key=args.api_key)
+                client = create_openai_client(args)
             else:
                 http_client = httpx.Client(
                     limits=httpx.Limits(
@@ -221,11 +217,7 @@ def main() -> None:
                         max_keepalive_connections=args.http_max_keepalive_connections,
                     )
                 )
-                client = OpenAI(
-                    base_url=args.base_url,
-                    api_key=args.api_key,
-                    http_client=http_client,
-                )
+                client = create_openai_client(args, http_client=http_client)
             thread_local.client = client
         return client
     tasks: list[dict[str, object]] = []
@@ -356,7 +348,7 @@ def main() -> None:
                 filtered_out += 1
                 continue
             row = result["row"]
-            now = dt.datetime.now(dt.timezone.utc).isoformat()
+            now = utc_now_iso()
             writer.writerow(
                 {
                     "created_at": now,

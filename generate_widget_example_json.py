@@ -13,15 +13,12 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
-import datetime as dt
 import json
-import os
 import random
 import re
 from pathlib import Path
 
-from openai import OpenAI
-
+from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
 
 SCENARIO_REQUIRED_FIELDS = ["created_at", "model", "category", "scenario"]
@@ -434,10 +431,7 @@ def main() -> None:
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
     parser.add_argument("--tool-call-csv", default="mobile_widget_tool_calls.csv")
     parser.add_argument("--json-csv", default="mobile_widget_example_json.csv")
-    parser.add_argument("--base-url", default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"))
-    parser.add_argument("--api-key", default=os.getenv("VLLM_API_KEY", "EMPTY"))
-    parser.add_argument("--model", default=os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"))
-    parser.add_argument("--temperature", type=float, default=0.5)
+    add_openai_cli_args(parser, default_temperature=0.5)
     parser.add_argument("--variants-per-scenario", type=int, default=3)
     parser.add_argument("--max-examples", type=int, default=3)
     parser.add_argument("--example-seed", type=int, default=42)
@@ -491,7 +485,7 @@ def main() -> None:
         return
 
     tool_call_map = load_tool_calls(Path(args.tool_call_csv))
-    client = OpenAI(base_url=args.base_url, api_key=args.api_key)
+    client = create_openai_client(args)
     rand = random.Random(args.example_seed)
     difficulty_rand = random.Random(args.difficulty_seed)
 
@@ -580,7 +574,7 @@ def main() -> None:
         variants = result["variants"]
         local_written = 0
 
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        now = utc_now_iso()
         for variant_index, obj in enumerate(variants, start=1):
             ensured = ensure_tool_calls(obj, tool_call_names)
             if args.tool_call_overlap_filter and not has_tool_call_overlap(

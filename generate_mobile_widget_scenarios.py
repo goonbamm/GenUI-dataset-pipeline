@@ -13,15 +13,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import datetime as dt
 import math
-import os
 import re
 from pathlib import Path
 from typing import Iterable
 
-from openai import OpenAI
-
+from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
 DEFAULT_CATEGORIES = [
@@ -186,10 +183,7 @@ def is_valid_surface_form(s: str) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv-path", default="mobile_widget_scenarios.csv")
-    parser.add_argument("--base-url", default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"))
-    parser.add_argument("--api-key", default=os.getenv("VLLM_API_KEY", "EMPTY"))
-    parser.add_argument("--model", default=os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"))
-    parser.add_argument("--temperature", type=float, default=0.8)
+    add_openai_cli_args(parser, default_temperature=0.8)
     parser.add_argument("--responses-per-category", type=int, default=1)
     parser.add_argument("--scenarios-per-response", type=int, default=5)
     parser.add_argument("--target-per-category", type=int, default=None)
@@ -210,7 +204,7 @@ def main() -> None:
 
     existing_by_category, existing_scenarios = load_existing(csv_path)
 
-    client = OpenAI(base_url=args.base_url, api_key=args.api_key)
+    client = create_openai_client(args)
 
     rows_to_append: list[dict[str, str]] = []
     generated_norm: set[str] = set(existing_scenarios)
@@ -231,7 +225,7 @@ def main() -> None:
 
         disallow = unique_preserve_order(list(existing_scenarios))[: args.max_disallow]
         accepted = 0
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        now = utc_now_iso()
         planned_responses = max(1, math.ceil(needed / args.scenarios_per_response))
 
         for _ in range(planned_responses):

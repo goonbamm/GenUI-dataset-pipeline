@@ -13,13 +13,10 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
-import datetime as dt
-import os
 import re
 from pathlib import Path
 
-from openai import OpenAI
-
+from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
@@ -248,10 +245,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario-csv", default="mobile_widget_scenarios.csv")
     parser.add_argument("--tool-call-csv", default="mobile_widget_tool_calls.csv")
-    parser.add_argument("--base-url", default=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"))
-    parser.add_argument("--api-key", default=os.getenv("VLLM_API_KEY", "EMPTY"))
-    parser.add_argument("--model", default=os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"))
-    parser.add_argument("--temperature", type=float, default=0.4)
+    add_openai_cli_args(parser, default_temperature=0.4)
     parser.add_argument("--max-items-per-scenario", type=int, default=3)
     parser.add_argument("--max-examples", type=int, default=10)
     parser.add_argument("--limit-scenarios", type=int, default=0)
@@ -276,7 +270,7 @@ def main() -> None:
 
     examples = TOOL_CALL_EXAMPLES[: max(1, args.max_examples)]
 
-    client = OpenAI(base_url=args.base_url, api_key=args.api_key)
+    client = create_openai_client(args)
 
     def process_row(row_index: int, row: dict[str, str]) -> dict[str, object]:
         prompt = build_prompt(
@@ -336,7 +330,7 @@ def main() -> None:
         items = result["items"]
         local_written = 0
 
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        now = utc_now_iso()
         for item in items:
             writer.writerow(
                 {

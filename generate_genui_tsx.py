@@ -23,7 +23,8 @@ from openai import OpenAI
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import UnsupportedNError, create_completion_with_retry
 from common.schemas import STAGE3_REQUIRED_FIELDS, STAGE4_FIELDS, ensure_required_columns
-from common.stage_executor import FlushWriter, run_ordered_stage
+from common.stage_executor import FlushWriter
+from common.stages import StageSpec, run_stage
 
 try:
     import httpx
@@ -434,18 +435,20 @@ def main() -> None:
             writer.writeheader()
             f.flush()
 
-        summary = run_ordered_stage(
-            tasks=tasks,
-            process_task=process_task_bundle,
-            task_key=lambda task: task.row_index,
-            result_key=lambda result_bundle: result_bundle.row_index,
-            flush_result=flush_row_results,
-            max_concurrency=args.max_concurrency,
-            writer=writer,
-            output_file=f,
-            flush_every=args.flush_every,
-            done_log=done_log,
-            warn_log=warn_log,
+        summary = run_stage(
+            StageSpec(
+                tasks=tasks,
+                process_task=process_task_bundle,
+                task_key=lambda task: task.row_index,
+                result_key=lambda result_bundle: result_bundle.row_index,
+                flush_result=flush_row_results,
+                max_concurrency=args.max_concurrency,
+                writer=writer,
+                output_file=f,
+                flush_every=args.flush_every,
+                done_log=done_log,
+                warn_log=warn_log,
+            )
         )
 
     if not summary.written_rows:

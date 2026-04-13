@@ -111,6 +111,12 @@ python generate_widget_example_json.py
 python generate_genui_tsx.py
 ```
 
+또는 오케스트레이터로 한 번에 실행:
+
+```bash
+python run_pipeline.py
+```
+
 ---
 
 ## 자세한 사용법 (클릭해서 펼치기) 📘

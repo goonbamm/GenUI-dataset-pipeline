@@ -190,7 +190,7 @@ python generate_mobile_widget_scenarios.py --categories 쇼핑 음악 미디어 
 
 - 입력: `mobile_widget_scenarios.csv` (기본)
 - 시나리오 1개당 최대 3개 tool call 생성(기본)
-- tool call 포맷: `function_name(param1=value1, param2=value2, ...) - short description`
+- tool call 포맷: `function_name(param1=value1, param2=value2, ...)`
 - `params` 같은 플레이스홀더 대신 시나리오에 맞는 실제 파라미터/값을 채워 생성
 - 기존 tool call 중복이 있어도, 생성 일자/모델/시나리오가 다르면 그대로 추가
 - 프롬프트 예시 개수는 `--max-examples`로 조절 가능

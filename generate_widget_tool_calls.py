@@ -16,11 +16,11 @@ import csv
 import datetime as dt
 import os
 import re
-import time
 from pathlib import Path
 
 from openai import OpenAI
 
+from common.openai_retry import create_completion_with_retry
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
 TOOL_CALL_FIELDS = [
@@ -242,31 +242,6 @@ def extract_tool_calls(text: str) -> list[str]:
         print(f"[WARN] Dropped {dropped_by_content} invalid tool call(s) due to content validation.")
 
     return results
-
-
-def create_completion_with_retry(
-    client: OpenAI,
-    *,
-    model: str,
-    temperature: float,
-    messages: list[dict[str, str]],
-    max_retries: int = 3,
-    initial_backoff_sec: float = 1.0,
-):
-    attempt = 0
-    while True:
-        try:
-            return client.chat.completions.create(
-                model=model,
-                n=1,
-                temperature=temperature,
-                messages=messages,
-            )
-        except Exception:
-            attempt += 1
-            if attempt > max_retries:
-                raise
-            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
 
 
 def main() -> None:

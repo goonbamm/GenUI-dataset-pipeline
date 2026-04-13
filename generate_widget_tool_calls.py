@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
@@ -261,14 +262,28 @@ def main() -> None:
 
     client = create_openai_client(args)
 
-    tasks: list[dict[str, object]] = [
-        {"row_index": row_index, "sample_index": 1, "row": row}
+    @dataclass(frozen=True)
+    class ToolCallTask:
+        row_index: int
+        sample_index: int
+        scenario_row: dict[str, str]
+
+    @dataclass(frozen=True)
+    class ToolCallResult:
+        row_index: int
+        sample_index: int
+        scenario_row: dict[str, str]
+        prompt: str
+        items: list[str]
+
+    tasks: list[ToolCallTask] = [
+        ToolCallTask(row_index=row_index, sample_index=1, scenario_row=row)
         for row_index, row in enumerate(scenario_rows, start=1)
     ]
 
-    def process_row(task: dict[str, object]) -> dict[str, object]:
-        row_index = int(task["row_index"])
-        row = task["row"]
+    def process_row(task: ToolCallTask) -> ToolCallResult:
+        row_index = task.row_index
+        row = task.scenario_row
         prompt = build_prompt(
             category=row["category"],
             scenario=row["scenario"],
@@ -295,25 +310,25 @@ def main() -> None:
 
         output_text = completion.choices[0].message.content or ""
         items = extract_tool_calls(output_text)[: args.max_items_per_scenario]
-        return {
-            "row_index": row_index,
-            "sample_index": int(task["sample_index"]),
-            "row": row,
-            "prompt": prompt,
-            "items": items,
-        }
+        return ToolCallResult(
+            row_index=row_index,
+            sample_index=task.sample_index,
+            scenario_row=row,
+            prompt=prompt,
+            items=items,
+        )
 
     tool_call_csv_path = Path(args.tool_call_csv)
     file_exists = tool_call_csv_path.exists()
     write_mode = "a" if file_exists else "w"
     write_encoding = "utf-8" if file_exists else "utf-8-sig"
 
-    def flush_result(result: dict[str, object], flush_writer: FlushWriter) -> int:
-        row_index = int(result["row_index"])
-        sample_index = int(result["sample_index"])
-        row = result["row"]
-        prompt = str(result["prompt"])
-        items = result["items"]
+    def flush_result(result: ToolCallResult, flush_writer: FlushWriter) -> int:
+        row_index = result.row_index
+        sample_index = result.sample_index
+        row = result.scenario_row
+        prompt = result.prompt
+        items = result.items
         local_written = 0
 
         now = utc_now_iso()
@@ -335,14 +350,14 @@ def main() -> None:
             local_written += 1
         return local_written
 
-    def done_log(done: int, total_tasks: int, task: dict[str, object], _: dict[str, object]) -> str:
-        row_index = int(task["row_index"])
-        row = task["row"]
+    def done_log(done: int, total_tasks: int, task: ToolCallTask, _: ToolCallResult) -> str:
+        row_index = task.row_index
+        row = task.scenario_row
         return f"[DONE] {done}/{total_tasks} row={row_index} {row['category']} | {row['scenario']}"
 
-    def warn_log(done: int, total_tasks: int, task: dict[str, object], exc: Exception) -> str:
-        row_index = int(task["row_index"])
-        row = task["row"]
+    def warn_log(done: int, total_tasks: int, task: ToolCallTask, exc: Exception) -> str:
+        row_index = task.row_index
+        row = task.scenario_row
         return (
             f"[WARN] {done}/{total_tasks} row={row_index} {row['category']} | {row['scenario']} "
             f"request failed after retries: {exc}"
@@ -357,8 +372,8 @@ def main() -> None:
         summary = run_ordered_stage(
             tasks=tasks,
             process_task=process_row,
-            task_key=lambda task: (int(task["row_index"]), int(task["sample_index"])),
-            result_key=lambda result: (int(result["row_index"]), int(result["sample_index"])),
+            task_key=lambda task: (task.row_index, task.sample_index),
+            result_key=lambda result: (result.row_index, result.sample_index),
             flush_result=flush_result,
             max_concurrency=args.max_concurrency,
             writer=writer,

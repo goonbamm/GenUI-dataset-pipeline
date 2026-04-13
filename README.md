@@ -2,6 +2,9 @@
 
 Generative UI 모바일 위젯 시나리오 데이터를 **4단계 파이프라인**으로 생성하고 CSV로 누적 저장하는 스크립트 모음입니다.
 
+> 문서 기준 버전: `main` 브랜치 최신 스크립트 기준  
+> 문서 갱신일: **2026-04-13 (UTC)**
+
 ## 한눈에 보는 전체 흐름 🧭
 
 > 현재 4단계 구조를 기준으로, 전체 흐름을 빠르게 파악할 수 있게 요약했습니다 🙂
@@ -234,6 +237,8 @@ python generate_widget_tool_calls.py \
 - `--max-items-per-scenario`: 시나리오당 최대 tool call 개수 (기본: `3`)
 - `--max-examples`: 프롬프트 예시 개수 상한 (기본: `10`)
 - `--limit-scenarios`: 앞에서 N개 시나리오만 테스트 생성 (기본: `0`, 전체)
+- `--max-concurrency`: 동시 요청 워커 수 (기본: `6`)
+- `--flush-every`: 출력 CSV flush 주기(행 수 기준, 기본: `1`)
 
 </details>
 
@@ -374,6 +379,9 @@ python generate_widget_example_json.py \
 - `--difficulty-fixed-level`: `fixed` 전략일 때 사용할 레벨 `low|medium|high` (기본: `medium`)
 - `--difficulty-seed`: `random` 전략 난수 시드 (기본: `42`)
 - `--limit-scenarios`: 앞에서 N개 시나리오만 테스트 생성 (기본: `0`, 전체)
+- `--max-concurrency`: 동시 요청 워커 수 (기본: `6`)
+- `--flush-every`: 출력 CSV flush 주기(행 수 기준, 기본: `1`)
+- `--tool-call-overlap-filter` / `--no-tool-call-overlap-filter`: stage2 tool 이름과 JSON `tool_calls` 이름의 겹침이 0인 variant를 제외할지 여부 (기본: on)
 
 </details>
 
@@ -438,6 +446,7 @@ python generate_genui_tsx.py \
 - `--max-concurrency`: 동시 요청 워커 수 (기본: `4`)
 - `--http-max-connections`: HTTP 총 연결 상한 (기본: `32`)
 - `--http-max-keepalive-connections`: keep-alive 연결 상한 (기본: `16`)
+- `--flush-every`: 출력 CSV flush 주기(행 수 기준, 기본: `1`)
 - `--limit-rows`: 앞에서 N개 JSON row만 테스트 생성 (기본: `0`, 전체)
 - `--filter-invalid` / `--no-filter-invalid`: 출력 전 품질 체크 필터 on/off (기본: on)
 
@@ -448,3 +457,20 @@ python generate_genui_tsx.py \
 - 연결 풀 상한(`--http-max-connections`, `--http-max-keepalive-connections`)을 함께 조정하면 과도한 커넥션 확장을 완화할 수 있습니다.
 
 </details>
+
+---
+
+## 문서/CLI 옵션 동기화 규칙 🧾
+
+- README의 단계별 `옵션` 목록은 각 스크립트의 `argparse` 정의와 동일해야 합니다.
+- 변경 시 아래 스크립트로 현재 옵션 목록(기본값 포함)을 추출해 함께 검토하세요.
+
+```bash
+python scripts/extract_cli_options.py
+```
+
+- 필요 시 특정 스크립트만 추출:
+
+```bash
+python scripts/extract_cli_options.py generate_widget_tool_calls.py
+```

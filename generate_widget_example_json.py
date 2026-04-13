@@ -308,6 +308,24 @@ def ensure_tool_calls(obj: dict, fallback_tool_call_names: list[str]) -> dict:
     return updated
 
 
+def has_tool_call_overlap(declared_tool_call_names: list[str], json_tool_calls: list[object]) -> bool:
+    """Check whether stage2 declared tool calls overlap with stage3 JSON tool_calls."""
+    declared = {
+        x.strip().lower()
+        for x in declared_tool_call_names
+        if isinstance(x, str) and x.strip()
+    }
+    if not declared:
+        return True
+
+    generated = {
+        x.strip().lower()
+        for x in json_tool_calls
+        if isinstance(x, str) and x.strip()
+    }
+    return not declared.isdisjoint(generated)
+
+
 def _inspect_json(value: object, depth: int = 1) -> dict[str, int]:
     """Return simple structure stats used for difficulty estimation."""
     stats = {
@@ -467,6 +485,15 @@ def main() -> None:
     )
     parser.add_argument("--limit-scenarios", type=int, default=0)
     parser.add_argument("--max-concurrency", type=int, default=6)
+    parser.add_argument(
+        "--tool-call-overlap-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "When enabled, drop variants whose JSON tool_calls have zero overlap "
+            "with stage2-declared tool call names."
+        ),
+    )
     args = parser.parse_args()
 
     if args.variants_per_scenario < 1:
@@ -551,6 +578,7 @@ def main() -> None:
     rows_to_append: list[dict[str, str]] = []
     total = len(scenario_rows)
     done = 0
+    dropped_no_overlap = 0
     ordered_results: list[dict[str, object]] = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
@@ -585,6 +613,11 @@ def main() -> None:
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         for variant_index, obj in enumerate(variants, start=1):
             ensured = ensure_tool_calls(obj, tool_call_names)
+            if args.tool_call_overlap_filter and not has_tool_call_overlap(
+                tool_call_names, ensured.get("tool_calls", [])
+            ):
+                dropped_no_overlap += 1
+                continue
             target_level = difficulty_targets[variant_index - 1]
             difficulty = estimate_difficulty(
                 scenario=row["scenario"],
@@ -626,6 +659,8 @@ def main() -> None:
         writer.writerows(rows_to_append)
 
     print(f"Saved {len(rows_to_append)} rows to {out_path}")
+    if args.tool_call_overlap_filter:
+        print(f"Dropped {dropped_no_overlap} rows by tool-call overlap filter")
 
 
 if __name__ == "__main__":

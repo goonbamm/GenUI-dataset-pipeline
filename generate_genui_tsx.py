@@ -22,47 +22,13 @@ from openai import OpenAI
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import UnsupportedNError, create_completion_with_retry
+from common.schemas import STAGE3_REQUIRED_FIELDS, STAGE4_FIELDS, ensure_required_columns
 from common.stage_executor import FlushWriter, run_ordered_stage
 
 try:
     import httpx
 except Exception:  # pragma: no cover - optional optimization
     httpx = None
-
-JSON_REQUIRED_FIELDS = [
-    "created_at",
-    "model",
-    "scenario_created_at",
-    "scenario_model",
-    "category",
-    "scenario",
-    "variant_index",
-    "difficulty_target",
-    "difficulty",
-    "example_json",
-]
-
-TSX_FIELDS = [
-    "created_at",
-    "model",
-    "row_index",
-    "json_created_at",
-    "json_model",
-    "scenario_created_at",
-    "scenario_model",
-    "category",
-    "scenario",
-    "json_variant_index",
-    "json_difficulty_target",
-    "json_difficulty",
-    "sample_index",
-    "prompt",
-    "example_json",
-    "tsx_code",
-    "format_ok",
-    "uses_declared_tool_calls",
-]
-
 
 def load_json_rows(csv_path: Path) -> list[dict[str, str]]:
     if not csv_path.exists():
@@ -71,19 +37,13 @@ def load_json_rows(csv_path: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
-        missing = [col for col in JSON_REQUIRED_FIELDS if col not in headers]
-        if missing:
-            raise ValueError(
-                f"JSON CSV is missing required columns {missing}. "
-                f"Found columns: {headers}"
-            )
+        ensure_required_columns(reader.fieldnames, STAGE3_REQUIRED_FIELDS, label="JSON CSV")
 
         for row in reader:
             example_json = (row.get("example_json") or "").strip()
             if not example_json:
                 continue
-            rows.append({k: (row.get(k) or "").strip() for k in JSON_REQUIRED_FIELDS})
+            rows.append({k: (row.get(k) or "").strip() for k in STAGE3_REQUIRED_FIELDS})
 
     return rows
 
@@ -419,7 +379,7 @@ def main() -> None:
         )
 
     with out_path.open(write_mode, encoding=write_encoding, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=TSX_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=STAGE4_FIELDS)
         if not file_exists:
             writer.writeheader()
             f.flush()

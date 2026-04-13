@@ -18,21 +18,15 @@ from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
+from common.schemas import (
+    STAGE1_REQUIRED_FIELDS,
+    STAGE2_FIELDS,
+    ScenarioReferenceRow,
+    build_scenario_join_key,
+    ensure_required_columns,
+)
 from common.stage_executor import FlushWriter, run_ordered_stage
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
-
-TOOL_CALL_FIELDS = [
-    "created_at",
-    "model",
-    "row_index",
-    "sample_index",
-    "scenario_created_at",
-    "scenario_model",
-    "category",
-    "scenario",
-    "prompt",
-    "tool_call",
-]
 
 TOOL_CALL_EXAMPLES = [
     'get_weather(city="Seoul", date="2026-04-12", unit="celsius")',
@@ -75,29 +69,25 @@ def normalize_text(text: str) -> str:
     return common_normalize_text(text, strip_prefix=True)
 
 
-def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
+def load_scenarios(csv_path: Path) -> list[ScenarioReferenceRow]:
     if not csv_path.exists():
         raise FileNotFoundError(f"Scenario CSV not found: {csv_path}")
 
-    rows: list[dict[str, str]] = []
+    rows: list[ScenarioReferenceRow] = []
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
-        missing = [col for col in ("category", "scenario") if col not in (reader.fieldnames or [])]
-        if missing:
-            raise ValueError(
-                f"Scenario CSV is missing required columns {missing}. "
-                f"Found columns: {reader.fieldnames}"
-            )
+        ensure_required_columns(reader.fieldnames, STAGE1_REQUIRED_FIELDS, label="Scenario CSV")
 
         for row in reader:
-            scenario = (row.get("scenario") or "").strip()
+            strict_key = build_scenario_join_key(row)
+            scenario = strict_key[3]
             if not scenario:
                 continue
             rows.append(
                 {
-                    "scenario_created_at": (row.get("created_at") or "").strip(),
-                    "scenario_model": (row.get("model") or "").strip(),
-                    "category": (row.get("category") or "").strip(),
+                    "scenario_created_at": strict_key[0],
+                    "scenario_model": strict_key[1],
+                    "category": strict_key[2],
                     "scenario": scenario,
                 }
             )
@@ -266,13 +256,13 @@ def main() -> None:
     class ToolCallTask:
         row_index: int
         sample_index: int
-        scenario_row: dict[str, str]
+        scenario_row: ScenarioReferenceRow
 
     @dataclass(frozen=True)
     class ToolCallResult:
         row_index: int
         sample_index: int
-        scenario_row: dict[str, str]
+        scenario_row: ScenarioReferenceRow
         prompt: str
         items: list[str]
 
@@ -364,7 +354,7 @@ def main() -> None:
         )
 
     with tool_call_csv_path.open(write_mode, encoding=write_encoding, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=TOOL_CALL_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=STAGE2_FIELDS)
         if not file_exists:
             writer.writeheader()
             f.flush()

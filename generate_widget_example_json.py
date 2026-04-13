@@ -20,27 +20,16 @@ from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
+from common.schemas import (
+    STAGE1_REQUIRED_FIELDS,
+    STAGE2_REQUIRED_FIELDS,
+    STAGE3_FIELDS,
+    ScenarioReferenceRow,
+    build_scenario_fallback_key,
+    build_scenario_join_key,
+    ensure_required_columns,
+)
 from common.stage_executor import FlushWriter, run_ordered_stage
-
-SCENARIO_REQUIRED_FIELDS = ["created_at", "model", "category", "scenario"]
-TOOL_CALL_REQUIRED_FIELDS = ["scenario_created_at", "scenario_model", "category", "scenario", "tool_call"]
-
-EXAMPLE_JSON_FIELDS = [
-    "created_at",
-    "model",
-    "row_index",
-    "sample_index",
-    "scenario_created_at",
-    "scenario_model",
-    "category",
-    "scenario",
-    "prompt",
-    "tool_calls",
-    "variant_index",
-    "difficulty_target",
-    "difficulty",
-    "example_json",
-]
 
 FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
     {
@@ -124,30 +113,25 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
 DIFFICULTY_LEVELS = ["low", "medium", "high"]
 
 
-def load_scenarios(csv_path: Path) -> list[dict[str, str]]:
+def load_scenarios(csv_path: Path) -> list[ScenarioReferenceRow]:
     if not csv_path.exists():
         raise FileNotFoundError(f"Scenario CSV not found: {csv_path}")
 
-    rows: list[dict[str, str]] = []
+    rows: list[ScenarioReferenceRow] = []
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
-        missing = [col for col in SCENARIO_REQUIRED_FIELDS if col not in headers]
-        if missing:
-            raise ValueError(
-                f"Scenario CSV is missing required columns {missing}. "
-                f"Found columns: {headers}"
-            )
+        ensure_required_columns(reader.fieldnames, STAGE1_REQUIRED_FIELDS, label="Scenario CSV")
 
         for row in reader:
-            scenario = (row.get("scenario") or "").strip()
-            category = (row.get("category") or "").strip()
+            strict_key = build_scenario_join_key(row)
+            scenario = strict_key[3]
+            category = strict_key[2]
             if not scenario or not category:
                 continue
             rows.append(
                 {
-                    "scenario_created_at": (row.get("created_at") or "").strip(),
-                    "scenario_model": (row.get("model") or "").strip(),
+                    "scenario_created_at": strict_key[0],
+                    "scenario_model": strict_key[1],
                     "category": category,
                     "scenario": scenario,
                 }
@@ -165,31 +149,19 @@ def load_tool_calls(csv_path: Path) -> dict[tuple[str, str, str, str], list[str]
 
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
-        missing = [col for col in TOOL_CALL_REQUIRED_FIELDS if col not in headers]
-        if missing:
-            raise ValueError(
-                "Tool-call CSV is missing required columns "
-                f"{missing}. "
-                f"Found columns: {headers}"
-            )
+        ensure_required_columns(reader.fieldnames, STAGE2_REQUIRED_FIELDS, label="Tool-call CSV")
 
         for row in reader:
             tool_call = (row.get("tool_call") or "").strip()
             if not tool_call:
                 continue
 
-            strict_key = (
-                (row.get("scenario_created_at") or "").strip(),
-                (row.get("scenario_model") or "").strip(),
-                (row.get("category") or "").strip(),
-                (row.get("scenario") or "").strip(),
-            )
+            strict_key = build_scenario_join_key(row)
             by_strict_key.setdefault(strict_key, [])
             if tool_call not in by_strict_key[strict_key]:
                 by_strict_key[strict_key].append(tool_call)
 
-            fallback_key = (strict_key[2], strict_key[3])
+            fallback_key = build_scenario_fallback_key(row)
             fallback_by_scenario.setdefault(fallback_key, [])
             if tool_call not in fallback_by_scenario[fallback_key]:
                 fallback_by_scenario[fallback_key].append(tool_call)
@@ -198,8 +170,8 @@ def load_tool_calls(csv_path: Path) -> dict[tuple[str, str, str, str], list[str]
     for key, items in by_strict_key.items():
         resolved[key] = items
 
-    for (category, scenario), items in fallback_by_scenario.items():
-        synthetic_key = ("", "", category, scenario)
+    for fallback_key, items in fallback_by_scenario.items():
+        synthetic_key = ("", "", *fallback_key)
         resolved.setdefault(synthetic_key, items)
 
     return resolved
@@ -494,13 +466,13 @@ def main() -> None:
     class ExampleJsonTask:
         row_index: int
         sample_index: int
-        scenario_row: dict[str, str]
+        scenario_row: ScenarioReferenceRow
 
     @dataclass(frozen=True)
     class ExampleJsonResult:
         row_index: int
         sample_index: int
-        scenario_row: dict[str, str]
+        scenario_row: ScenarioReferenceRow
         prompt: str
         tool_calls: list[str]
         tool_call_names: list[str]
@@ -521,7 +493,7 @@ def main() -> None:
             row["category"],
             row["scenario"],
         )
-        fallback_key = ("", "", row["category"], row["scenario"])
+        fallback_key = ("", "", *(build_scenario_fallback_key(row)))
         tool_calls = tool_call_map.get(strict_key) or tool_call_map.get(fallback_key) or []
         extracted_tool_call_names = [extract_tool_call_name(x) for x in tool_calls]
         tool_call_names = [name for name in extracted_tool_call_names if name]
@@ -641,7 +613,7 @@ def main() -> None:
         )
 
     with out_path.open(write_mode, encoding=write_encoding, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=EXAMPLE_JSON_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=STAGE3_FIELDS)
         if not file_exists:
             writer.writeheader()
             f.flush()

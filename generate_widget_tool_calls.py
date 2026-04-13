@@ -34,16 +34,16 @@ TOOL_CALL_FIELDS = [
 ]
 
 TOOL_CALL_EXAMPLES = [
-    'get_weather(city="Seoul", date="2026-04-12", unit="celsius") - 3-day weather widget',
-    'search_flights(origin="ICN", destination="NRT", depart_date="2026-05-02", passengers=1) - flight search results',
-    'show_stock_chart(ticker="AAPL", period="1M", interval="1D") - monthly stock trend chart',
-    'search_products(query="wireless earbuds", sort="rating", price_max=150000) - product list for shopping widget',
-    'book_restaurant(name="Mingles", date="2026-04-18", time="19:00", party_size=2) - reservation request',
-    'show_map_location(place="Gangnam Station", zoom=15, transport="transit") - location map card',
-    'create_calendar_event(title="design review", start_at="2026-04-15T14:00:00+09:00", duration_min=60) - event creation',
-    'play_music(playlist="focus_lofi", device="phone_speaker", shuffle=True) - start playlist playback',
-    'track_package(carrier="CJ", tracking_number="1234567890", locale="ko-KR") - package status timeline',
-    'show_recipe(dish="tofu_kimchi_stew", servings=2, difficulty="easy") - recipe detail card',
+    'get_weather(city="Seoul", date="2026-04-12", unit="celsius")',
+    'search_flights(origin="ICN", destination="NRT", depart_date="2026-05-02", passengers=1)',
+    'show_stock_chart(ticker="AAPL", period="1M", interval="1D")',
+    'search_products(query="wireless earbuds", sort="rating", price_max=150000)',
+    'book_restaurant(name="Mingles", date="2026-04-18", time="19:00", party_size=2)',
+    'show_map_location(place="Gangnam Station", zoom=15, transport="transit")',
+    'create_calendar_event(title="design review", start_at="2026-04-15T14:00:00+09:00", duration_min=60)',
+    'play_music(playlist="focus_lofi", device="phone_speaker", shuffle=True)',
+    'track_package(carrier="CJ", tracking_number="1234567890", locale="ko-KR")',
+    'show_recipe(dish="tofu_kimchi_stew", servings=2, difficulty="easy")',
 ]
 
 PLACEHOLDER_PARAM_NAMES = {
@@ -69,9 +69,6 @@ GENERIC_FUNCTION_NAMES = {
     "handle_input",
     "perform_action",
 }
-
-MAX_DESCRIPTION_LENGTH = 80
-
 
 def normalize_text(text: str) -> str:
     return common_normalize_text(text, strip_prefix=True)
@@ -117,12 +114,11 @@ Goal: Propose practical tool calls a widget can execute.
 
 Output constraints:
 1) Return only tool call lines.
-2) Each line must use this format: function_name(param1=value1, param2=value2, ...) - short description
+2) Each line must use this format: function_name(param1=value1, param2=value2, ...)
 3) Use snake_case for function_name.
 4) Fill parameters with realistic, scenario-specific values (avoid placeholder names like params, data, input).
-5) Keep each description concise and concrete.
-6) Provide at most {max_items} items.
-7) Avoid duplicates in this response.
+5) Provide at most {max_items} items.
+6) Avoid duplicates in this response.
 
 Examples:
 {example_text}
@@ -138,12 +134,9 @@ def normalize_tool_call_format(text: str) -> str:
     if not normalized:
         return normalized
 
-    # minor auto-fixes: excessive spaces and duplicated separator hyphens
+    # minor auto-fixes: excessive spaces around function call syntax
     normalized = re.sub(r"\s*\(\s*", "(", normalized, count=1)
     normalized = re.sub(r"\s*\)\s*", ")", normalized, count=1)
-    normalized = re.sub(r"\)\s*--+\s*", ") - ", normalized, count=1)
-    normalized = re.sub(r"\)\s*-\s*-\s*", ") - ", normalized, count=1)
-    normalized = re.sub(r"\s*-\s*", " - ", normalized, count=1)
     return normalize_spaces(normalized)
 
 
@@ -151,14 +144,13 @@ def validate_tool_call_format(text: str) -> bool:
     if not text:
         return False
 
-    # function_name(params) - description
-    match = re.fullmatch(r"([a-z]+(?:_[a-z0-9]+)*)\((.*)\)\s*-\s*(.+)", text)
+    # function_name(params)
+    match = re.fullmatch(r"([a-z]+(?:_[a-z0-9]+)*)\((.*)\)", text)
     if not match:
         return False
 
     params = (match.group(2) or "").strip()
-    description = (match.group(3) or "").strip()
-    if not params or not description:
+    if not params:
         return False
 
     # reject unbalanced parentheses in parameter section
@@ -176,11 +168,11 @@ def validate_tool_call_format(text: str) -> bool:
     return True
 
 
-def parse_tool_call_parts(text: str) -> tuple[str, str, str] | None:
-    match = re.fullmatch(r"([a-z]+(?:_[a-z0-9]+)*)\((.*)\)\s*-\s*(.+)", text)
+def parse_tool_call_parts(text: str) -> tuple[str, str] | None:
+    match = re.fullmatch(r"([a-z]+(?:_[a-z0-9]+)*)\((.*)\)", text)
     if not match:
         return None
-    return match.group(1), match.group(2).strip(), match.group(3).strip()
+    return match.group(1), match.group(2).strip()
 
 
 def extract_param_names(params: str) -> list[str]:
@@ -192,11 +184,8 @@ def validate_tool_call_content(text: str) -> bool:
     if not parts:
         return False
 
-    function_name, params, description = parts
+    function_name, params = parts
     if function_name in GENERIC_FUNCTION_NAMES:
-        return False
-
-    if len(description) > MAX_DESCRIPTION_LENGTH:
         return False
 
     param_names = extract_param_names(params)

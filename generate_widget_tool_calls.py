@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate tool calls for widget scenarios via vLLM (OpenAI-compatible API).
 
+Uses the Stage1 CSV canonical reader for scenario loading.
+
 Stage 2 helper script:
 - Reads scenario rows from stage1 CSV (default: mobile_widget_scenarios.csv)
 - For each scenario, requests up to N tool calls (default: 3)
@@ -18,12 +20,10 @@ from pathlib import Path
 
 from common.pipeline_runtime import add_openai_cli_args, create_openai_client, utc_now_iso
 from common.openai_retry import create_completion_with_retry
+from common.scenario_loader import load_stage1_scenarios
 from common.schemas import (
-    STAGE1_REQUIRED_FIELDS,
     STAGE2_FIELDS,
     ScenarioReferenceRow,
-    build_scenario_join_key,
-    ensure_required_columns,
 )
 from common.stage_executor import FlushWriter, run_ordered_stage
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
@@ -67,32 +67,6 @@ GENERIC_FUNCTION_NAMES = {
 
 def normalize_text(text: str) -> str:
     return common_normalize_text(text, strip_prefix=True)
-
-
-def load_scenarios(csv_path: Path) -> list[ScenarioReferenceRow]:
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Scenario CSV not found: {csv_path}")
-
-    rows: list[ScenarioReferenceRow] = []
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        ensure_required_columns(reader.fieldnames, STAGE1_REQUIRED_FIELDS, label="Scenario CSV")
-
-        for row in reader:
-            strict_key = build_scenario_join_key(row)
-            scenario = strict_key[3]
-            if not scenario:
-                continue
-            rows.append(
-                {
-                    "scenario_created_at": strict_key[0],
-                    "scenario_model": strict_key[1],
-                    "category": strict_key[2],
-                    "scenario": scenario,
-                }
-            )
-
-    return rows
 
 
 def build_prompt(category: str, scenario: str, examples: list[str], max_items: int) -> str:
@@ -240,7 +214,7 @@ def main() -> None:
     if args.flush_every < 1:
         raise ValueError("--flush-every must be >= 1")
 
-    scenario_rows = load_scenarios(Path(args.scenario_csv))
+    scenario_rows = load_stage1_scenarios(Path(args.scenario_csv), require_category=False)
     if args.limit_scenarios > 0:
         scenario_rows = scenario_rows[: args.limit_scenarios]
 

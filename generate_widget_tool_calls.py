@@ -25,7 +25,8 @@ from common.schemas import (
     STAGE2_FIELDS,
     ScenarioReferenceRow,
 )
-from common.stage_executor import FlushWriter, run_ordered_stage
+from common.stage_executor import FlushWriter
+from common.stages import StageSpec, run_stage
 from common.text import normalize_spaces, normalize_text as common_normalize_text, strip_list_prefix
 
 TOOL_CALL_EXAMPLES = [
@@ -333,18 +334,20 @@ def main() -> None:
             writer.writeheader()
             f.flush()
 
-        summary = run_ordered_stage(
-            tasks=tasks,
-            process_task=process_row,
-            task_key=lambda task: (task.row_index, task.sample_index),
-            result_key=lambda result: (result.row_index, result.sample_index),
-            flush_result=flush_result,
-            max_concurrency=args.max_concurrency,
-            writer=writer,
-            output_file=f,
-            flush_every=args.flush_every,
-            done_log=done_log,
-            warn_log=warn_log,
+        summary = run_stage(
+            StageSpec(
+                tasks=tasks,
+                process_task=process_row,
+                task_key=lambda task: (task.row_index, task.sample_index),
+                result_key=lambda result: (result.row_index, result.sample_index),
+                flush_result=flush_result,
+                max_concurrency=args.max_concurrency,
+                writer=writer,
+                output_file=f,
+                flush_every=args.flush_every,
+                done_log=done_log,
+                warn_log=warn_log,
+            )
         )
 
     if not summary.written_rows:

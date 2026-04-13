@@ -156,3 +156,13 @@ def build_scenario_join_key(row: Mapping[str, str]) -> tuple[str, str, str, str]
 
 def build_scenario_fallback_key(row: Mapping[str, str]) -> tuple[str, str]:
     return tuple((row.get(field) or "").strip() for field in SCENARIO_FALLBACK_KEY_FIELDS)  # type: ignore[return-value]
+
+
+def build_scenario_reference_from_stage1_row(row: Mapping[str, str]) -> ScenarioReferenceRow:
+    """Map a Stage1 CSV row into the shared ScenarioReferenceRow schema."""
+    return {
+        "scenario_created_at": (row.get("created_at") or "").strip(),
+        "scenario_model": (row.get("model") or "").strip(),
+        "category": (row.get("category") or "").strip(),
+        "scenario": (row.get("scenario") or "").strip(),
+    }

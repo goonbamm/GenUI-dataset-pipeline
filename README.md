@@ -128,6 +128,8 @@ python run_pipeline.py
 
 - 공통 인자(파이프라인 레벨):
   - `--from-stage`, `--to-stage`, `--continue-on-error`
+  - `--target-total` (선택): stage4 최종 목표 샘플 수를 1개 값으로 지정
+  - `--allocation-mode` (기본: `balanced`): 현재는 `balanced`만 지원
 - stage 전용 인자 채널:
   - `--stage1-args "..."`
   - `--stage2-args "..."`
@@ -155,6 +157,53 @@ python run_pipeline.py \
   --stage2-args "--limit-scenarios 5" \
   --stage4-args "--samples-per-input 1"
 ```
+
+예시 3) `--target-total`로 stage별 수량 자동 계산(균등 분배)
+
+```bash
+python run_pipeline.py \
+  --target-total 1000
+```
+
+### `--target-total` 자동 계산 정책 (`allocation-mode=balanced`)
+
+`--target-total`를 주면 README의 관계식(`S1~S4`)을 기준으로 **S4를 먼저 맞춘 뒤 역산**합니다.
+
+- `S1 = categories × target_per_category`
+- `S2 = S1 × max_items_per_scenario`
+- `S3 = S1 × variants_per_scenario`
+- `S4 = S3 × samples_per_input`
+
+역산 순서:
+
+1. `S3 = ceil(target_total / samples_per_input)`
+2. `S1 = ceil(S3 / variants_per_scenario)`
+3. `target_per_category = ceil(S1 / categories)`
+4. 최종 `S1, S2, S3, S4` 재계산
+
+> 나눗셈 정책은 부족 방지를 위해 `ceil` 고정입니다.  
+> 따라서 실제 `S4`는 `target_total` 이상으로 맞춰질 수 있습니다.
+
+#### 예시: 목표 1,000개 입력 시 자동 계산
+
+기본 계수(`categories=11`, `max_items_per_scenario=3`, `variants_per_scenario=3`, `samples_per_input=3`) 기준:
+
+| 입력/출력 | 값 |
+|---|---:|
+| 입력 `target_total` | 1000 |
+| 계산된 `target_per_category` (stage1) | 11 |
+| 계산된 `--limit-scenarios` (stage2) | 121 |
+| 계산된 `--variants-per-scenario` / `--limit-scenarios` (stage3) | 3 / 121 |
+| 계산된 `--samples-per-input` (stage4) | 3 |
+| 최종 예상 `S4` | 1089 |
+
+#### 충돌 우선순위(중요)
+
+- 사용자가 `--stageN-args`로 수량 인자를 명시하면 **명시값이 우선**합니다.
+  - 예: `--stage4-args "--samples-per-input 2"`를 주면 자동 분배 값 대신 `2` 사용
+- 자동 분배는 **명시되지 않은 항목만 보완**합니다.
+- 충돌 시 로그에 `[PIPELINE][WARN] ...` 경고를 출력합니다.
+- stage 실행 로그의 `stage N args`에는 `explicit` 또는 `explicit+auto(target-total)` 출처가 표시됩니다.
 
 실패 로그에는 어떤 stage에서 실패했는지와 함께, 해당 stage에 실제로 전달된 인자(`problematic args`)가 포함됩니다.
 

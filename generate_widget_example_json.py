@@ -589,6 +589,7 @@ def main() -> None:
     written_rows = 0
     pending_since_flush = 0
     buffered_results: dict[tuple[int, int], dict[str, object]] = {}
+    failed_results: set[tuple[int, int]] = set()
     next_expected = (1, 1)
 
     def flush_result(result: dict[str, object], writer: csv.DictWriter, output_file) -> int:
@@ -661,16 +662,25 @@ def main() -> None:
                 try:
                     result = future.result()
                     buffered_results[(int(result["row_index"]), int(result["sample_index"]))] = result
-                    while next_expected in buffered_results:
-                        ordered_result = buffered_results.pop(next_expected)
-                        written_rows += flush_result(ordered_result, writer, f)
-                        next_expected = (next_expected[0] + 1, 1)
                     print(f"[DONE] {done}/{total} row={row_index} {row['category']} | {row['scenario']}")
                 except Exception as e:
+                    failed_results.add((int(row_index), 1))
                     print(
                         f"[WARN] {done}/{total} row={row_index} {row['category']} | {row['scenario']} "
                         f"request failed after retries or parse failed: {e}"
                     )
+
+                while True:
+                    if next_expected in failed_results:
+                        failed_results.remove(next_expected)
+                        next_expected = (next_expected[0] + 1, 1)
+                        continue
+                    if next_expected in buffered_results:
+                        ordered_result = buffered_results.pop(next_expected)
+                        written_rows += flush_result(ordered_result, writer, f)
+                        next_expected = (next_expected[0] + 1, 1)
+                        continue
+                    break
 
         if pending_since_flush:
             f.flush()

@@ -11,6 +11,7 @@ Stage 3 helper script:
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import json
 import random
@@ -38,7 +39,11 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "price_krw": 12900,
         "discount_percent": 15,
         "delivery_eta": "2026-04-12",
-        "tool_calls": ["search_products", "add_to_cart", "buy_now"],
+        "tool_calls": [
+            {"name": "search_products", "params": {"query": "drip bag coffee"}, "data": {}},
+            {"name": "add_to_cart", "params": {"product_id": "bean_lab_db_01"}, "data": {}},
+            {"name": "buy_now", "params": {"payment_method": "card"}, "data": {}},
+        ],
     },
     {
         "product_name": "linen_oversized_shirt",
@@ -46,14 +51,21 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "color": "ivory",
         "price_krw": 45900,
         "stock_status": "in_stock",
-        "tool_calls": ["select_variant", "add_to_cart", "checkout"],
+        "tool_calls": [
+            {"name": "select_variant", "params": {"size": "M", "color": "ivory"}, "data": {}},
+            {"name": "add_to_cart", "params": {"sku": "linen_shirt_ivory_m"}, "data": {}},
+            {"name": "checkout", "params": {"coupon_code": "SPRING15"}, "data": {}},
+        ],
     },
     {
         "hotel_name": "ulsan_river_hotel",
         "reservation_date": "2026-03-26T08:00:00+09:00",
         "room_number": "301",
         "reservation_status": "confirmed",
-        "tool_calls": ["get_reservation_information", "cancel_reservation"],
+        "tool_calls": [
+            {"name": "get_reservation_information", "params": {"reservation_id": "RSV-20260326-301"}, "data": {}},
+            {"name": "cancel_reservation", "params": {"reason": "schedule_changed"}, "data": {}},
+        ],
     },
     {
         "flight_number": "KE102",
@@ -61,7 +73,10 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "departure_time": "2026-05-02T09:40:00+09:00",
         "gate": "A12",
         "boarding_status": "boarding_soon",
-        "tool_calls": ["view_boarding_pass", "check_flight_status"],
+        "tool_calls": [
+            {"name": "view_boarding_pass", "params": {"flight_number": "KE102"}, "data": {}},
+            {"name": "check_flight_status", "params": {"flight_number": "KE102"}, "data": {}},
+        ],
     },
     {
         "team": "lions_fc",
@@ -69,7 +84,10 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
         "opponent": "seoul_city_fc",
         "seat_section": "E2",
         "ticket_status": "paid",
-        "tool_calls": ["view_ticket_qr", "cancel_ticket"],
+        "tool_calls": [
+            {"name": "view_ticket_qr", "params": {"ticket_id": "TKT-E2-441"}, "data": {}},
+            {"name": "cancel_ticket", "params": {"ticket_id": "TKT-E2-441"}, "data": {}},
+        ],
     },
     {
         "calendar_date": "2026-04-10",
@@ -78,35 +96,52 @@ FEWSHOT_JSON_EXAMPLES: list[dict[str, object]] = [
             {"title": "client_call", "time": "15:30"},
         ],
         "busy_slots": 2,
-        "tool_calls": ["create_event", "open_event_detail"],
+        "tool_calls": [
+            {"name": "create_event", "params": {"title": "design_sync", "time": "10:00"}, "data": {}},
+            {"name": "open_event_detail", "params": {"event_id": "evt_1530"}, "data": {}},
+        ],
     },
     {
         "playlist_name": "focus_lofi_mix",
         "current_track": "night_rain_loop",
         "remaining_tracks": 12,
         "playback_mode": "shuffle",
-        "tool_calls": ["play_music", "skip_track", "save_playlist"],
+        "tool_calls": [
+            {"name": "play_music", "params": {"playlist_id": "focus_lofi_mix"}, "data": {}},
+            {"name": "skip_track", "params": {}, "data": {}},
+            {"name": "save_playlist", "params": {"playlist_id": "focus_lofi_mix"}, "data": {}},
+        ],
     },
     {
         "recipe_name": "tofu_kimchi_stew",
         "servings": 2,
         "cook_time_min": 25,
         "missing_ingredients": ["tofu"],
-        "tool_calls": ["show_recipe", "add_ingredients_to_cart"],
+        "tool_calls": [
+            {"name": "show_recipe", "params": {"recipe_id": "tofu_kimchi_stew"}, "data": {}},
+            {"name": "add_ingredients_to_cart", "params": {"items": ["tofu"]}, "data": {}},
+        ],
     },
     {
         "workout_type": "interval_running",
         "target_duration_min": 30,
         "calorie_goal": 280,
         "progress_percent": 40,
-        "tool_calls": ["start_workout", "pause_workout", "finish_workout"],
+        "tool_calls": [
+            {"name": "start_workout", "params": {"workout_type": "interval_running"}, "data": {}},
+            {"name": "pause_workout", "params": {"elapsed_min": 12}, "data": {}},
+            {"name": "finish_workout", "params": {"elapsed_min": 30}, "data": {}},
+        ],
     },
     {
         "package_id": "KR-1Z-88A2",
         "carrier": "cj_logistics",
         "status": "out_for_delivery",
         "estimated_arrival": "2026-04-09T19:00:00+09:00",
-        "tool_calls": ["track_package", "contact_courier"],
+        "tool_calls": [
+            {"name": "track_package", "params": {"package_id": "KR-1Z-88A2"}, "data": {}},
+            {"name": "contact_courier", "params": {"carrier": "cj_logistics"}, "data": {}},
+        ],
     },
 ]
 
@@ -211,8 +246,9 @@ Reference JSON examples (style only, do not copy values as-is):
 
 Requirements:
 1) Return ONLY a JSON array with exactly {variants_per_scenario} objects.
-2) Every object must include "tool_calls" key with a JSON array of snake_case function names.
-3) If tool calls are given, map them into the tool_calls list (function name only, no params/description).
+2) Every object must include "tool_calls" key with a JSON array of objects in this schema:
+   [{{"name": "search_products", "params": {{}}, "data": {{}}}}]
+3) If tool calls are given, map them into the tool_calls list and preserve the stage2 tool_call argument structure as much as possible.
 4) If no tool call is needed, set "tool_calls": [].
 5) Add concrete, user-facing fields relevant to the scenario (dates, names, numbers, status, prices, etc.).
 6) Use realistic values and keep key names in snake_case.
@@ -261,19 +297,85 @@ def extract_tool_call_name(tool_call: str) -> str:
     return raw.lower()
 
 
-def ensure_tool_calls(obj: dict, fallback_tool_call_names: list[str]) -> dict:
+def _ast_to_jsonable(node: ast.AST) -> object:
+    try:
+        return ast.literal_eval(node)
+    except Exception:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            base = _ast_to_jsonable(node.value)
+            if isinstance(base, str) and base:
+                return f"{base}.{node.attr}"
+            return node.attr
+        if isinstance(node, ast.Call):
+            func_name = extract_tool_call_name(ast.unparse(node))
+            return {"call": func_name}
+        return ast.unparse(node)
+
+
+def parse_tool_call_object(tool_call: str) -> dict[str, object] | None:
+    raw = (tool_call or "").strip()
+    if not raw:
+        return None
+
+    fallback_name = extract_tool_call_name(raw)
+    if not fallback_name:
+        return None
+
+    try:
+        expr = ast.parse(raw, mode="eval").body
+    except SyntaxError:
+        return {"name": fallback_name, "params": {}, "data": {"raw": raw, "parse_error": "syntax_error"}}
+
+    if not isinstance(expr, ast.Call):
+        return {"name": fallback_name, "params": {}, "data": {"raw": raw, "parse_error": "not_call_expr"}}
+
+    func_name = fallback_name
+    if isinstance(expr.func, ast.Name):
+        func_name = expr.func.id.lower()
+    elif isinstance(expr.func, ast.Attribute):
+        func_name = expr.func.attr.lower()
+
+    params: dict[str, object] = {}
+    if expr.args:
+        params["_args"] = [_ast_to_jsonable(arg) for arg in expr.args]
+    for kw in expr.keywords:
+        if kw.arg:
+            params[kw.arg] = _ast_to_jsonable(kw.value)
+
+    return {"name": func_name, "params": params, "data": {"raw": raw}}
+
+
+def ensure_tool_calls(obj: dict, fallback_tool_calls: list[dict[str, object]]) -> dict:
     updated = dict(obj)
     tool_calls = updated.get("tool_calls")
     if not isinstance(tool_calls, list):
         tool_calls = []
 
-    cleaned_tool_calls: list[str] = []
+    cleaned_tool_calls: list[dict[str, object]] = []
     for item in tool_calls:
-        if isinstance(item, str) and item.strip():
-            cleaned_tool_calls.append(item.strip())
+        normalized: dict[str, object] | None = None
+        if isinstance(item, str):
+            normalized = parse_tool_call_object(item)
+        elif isinstance(item, dict):
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                name = extract_tool_call_name(str(item.get("tool_call") or item.get("raw") or ""))
+            if isinstance(name, str) and name.strip():
+                params = item.get("params")
+                data = item.get("data")
+                normalized = {
+                    "name": name.strip().lower(),
+                    "params": params if isinstance(params, dict) else {},
+                    "data": data if isinstance(data, dict) else {},
+                }
 
-    if not cleaned_tool_calls and fallback_tool_call_names:
-        cleaned_tool_calls = fallback_tool_call_names
+        if normalized:
+            cleaned_tool_calls.append(normalized)
+
+    if not cleaned_tool_calls and fallback_tool_calls:
+        cleaned_tool_calls = [dict(x) for x in fallback_tool_calls]
 
     updated["tool_calls"] = cleaned_tool_calls
     return updated
@@ -289,11 +391,14 @@ def has_tool_call_overlap(declared_tool_call_names: list[str], json_tool_calls: 
     if not declared:
         return True
 
-    generated = {
-        x.strip().lower()
-        for x in json_tool_calls
-        if isinstance(x, str) and x.strip()
-    }
+    generated: set[str] = set()
+    for x in json_tool_calls:
+        if isinstance(x, str) and x.strip():
+            generated.add(x.strip().lower())
+        elif isinstance(x, dict):
+            name = x.get("name")
+            if isinstance(name, str) and name.strip():
+                generated.add(name.strip().lower())
     return not declared.isdisjoint(generated)
 
 
@@ -475,6 +580,7 @@ def main() -> None:
         scenario_row: ScenarioReferenceRow
         prompt: str
         tool_calls: list[str]
+        parsed_tool_calls: list[dict[str, object]]
         tool_call_names: list[str]
         difficulty_targets: list[str]
         variants: list[dict]
@@ -495,7 +601,8 @@ def main() -> None:
         )
         fallback_key = ("", "", *(build_scenario_fallback_key(row)))
         tool_calls = tool_call_map.get(strict_key) or tool_call_map.get(fallback_key) or []
-        extracted_tool_call_names = [extract_tool_call_name(x) for x in tool_calls]
+        parsed_tool_calls = [x for x in (parse_tool_call_object(raw) for raw in tool_calls) if x]
+        extracted_tool_call_names = [str(item["name"]) for item in parsed_tool_calls if item.get("name")]
         tool_call_names = [name for name in extracted_tool_call_names if name]
         difficulty_targets = build_difficulty_targets(
             variants_per_scenario=args.variants_per_scenario,
@@ -540,6 +647,7 @@ def main() -> None:
             scenario_row=row,
             prompt=prompt,
             tool_calls=tool_calls,
+            parsed_tool_calls=parsed_tool_calls,
             tool_call_names=tool_call_names,
             difficulty_targets=difficulty_targets,
             variants=variants[: args.variants_per_scenario],
@@ -558,6 +666,7 @@ def main() -> None:
         row = result.scenario_row
         prompt = result.prompt
         tool_calls = result.tool_calls
+        parsed_tool_calls = result.parsed_tool_calls
         tool_call_names = result.tool_call_names
         difficulty_targets = result.difficulty_targets
         variants = result.variants
@@ -565,7 +674,7 @@ def main() -> None:
 
         now = utc_now_iso()
         for variant_index, obj in enumerate(variants, start=1):
-            ensured = ensure_tool_calls(obj, tool_call_names)
+            ensured = ensure_tool_calls(obj, parsed_tool_calls)
             if args.tool_call_overlap_filter and not has_tool_call_overlap(
                 tool_call_names, ensured.get("tool_calls", [])
             ):

@@ -18,10 +18,11 @@ import json
 import os
 import re
 import threading
-import time
 from pathlib import Path
 
 from openai import OpenAI
+
+from common.openai_retry import UnsupportedNError, create_completion_with_retry
 
 try:
     import httpx
@@ -152,52 +153,6 @@ def check_tool_calls_used(tsx: str, tool_calls: list[str]) -> bool:
         if label not in lower and tool_call.lower() not in lower:
             return False
     return True
-
-
-class UnsupportedNError(RuntimeError):
-    """Raised when server does not support n>1 in chat.completions.create."""
-
-
-def is_n_unsupported_error(error: Exception) -> bool:
-    text = str(error).lower()
-    patterns = [
-        "does not support n",
-        "unsupported value: 'n'",
-        "unsupported parameter",
-        "unexpected keyword argument 'n'",
-        "n must be 1",
-        "n is not supported",
-        "only support n=1",
-    ]
-    return any(p in text for p in patterns)
-
-
-def create_completion_with_retry(
-    client: OpenAI,
-    *,
-    model: str,
-    n: int,
-    temperature: float,
-    messages: list[dict[str, str]],
-    max_retries: int = 3,
-    initial_backoff_sec: float = 1.0,
-):
-    attempt = 0
-    while True:
-        try:
-            return client.chat.completions.create(
-                model=model,
-                n=n,
-                temperature=temperature,
-                messages=messages,
-            )
-        except Exception as e:
-            if n > 1 and is_n_unsupported_error(e):
-                raise UnsupportedNError(str(e)) from e
-            attempt += 1
-            if attempt > max_retries:
-                raise
-            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
 
 
 def collect_outputs_from_completion(completion, expected_count: int) -> list[str]:

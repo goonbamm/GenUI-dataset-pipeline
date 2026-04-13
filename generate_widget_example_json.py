@@ -18,10 +18,11 @@ import json
 import os
 import random
 import re
-import time
 from pathlib import Path
 
 from openai import OpenAI
+
+from common.openai_retry import create_completion_with_retry
 
 SCENARIO_REQUIRED_FIELDS = ["created_at", "model", "category", "scenario"]
 TOOL_CALL_REQUIRED_FIELDS = ["scenario_created_at", "scenario_model", "category", "scenario", "tool_call"]
@@ -426,31 +427,6 @@ def build_difficulty_targets(
         DIFFICULTY_LEVELS[i % len(DIFFICULTY_LEVELS)]
         for i in range(variants_per_scenario)
     ]
-
-
-def create_completion_with_retry(
-    client: OpenAI,
-    *,
-    model: str,
-    temperature: float,
-    messages: list[dict[str, str]],
-    max_retries: int = 3,
-    initial_backoff_sec: float = 1.0,
-):
-    attempt = 0
-    while True:
-        try:
-            return client.chat.completions.create(
-                model=model,
-                n=1,
-                temperature=temperature,
-                messages=messages,
-            )
-        except Exception:
-            attempt += 1
-            if attempt > max_retries:
-                raise
-            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
 
 
 def main() -> None:
